@@ -32,7 +32,10 @@ void SDLman::Exit()
 
 SDLman::~SDLman()
 {
-TODO:
-    add proper de -
-        initialization !!also add main loop(which loops while !shouldExit !)
+    /*
+     *
+     TODO:
+        add proper de -
+            initialization !!also add main loop(which loops while !shouldExit !)
+        */
 }
