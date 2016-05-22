@@ -1,5 +1,5 @@
 #include "Logman.h"
-#include <stdio.h>
+#include "Config.h"
 #include <map>
 using std::map;
 
@@ -7,14 +7,14 @@ static map<LogLevel, const char*> LOG_PREFIX = {
     {LOG_DRIVEL, "[D]"}, {LOG_INFO, "[I]"}, {LOG_ERROR, "[ERROR]"},
 };
 
-static const char* LOG_FILENAME = "log.txt";
-
-void Logman::Open()
+Logman::Logman(Client& client) : Module(client)
 {
-    f = fopen(LOG_FILENAME, "w");
+    const char* logFilename = c.cfg->GetString("log", "filename", "log.txt");
+
+    f = fopen(logFilename, "w");
 
     if (!f)
-        FatalError("Error Opening Log File: %s", LOG_FILENAME);
+        FatalError("Error Opening Log File: %s", logFilename);
     else
         fprintf(f, "\n");
 
@@ -93,8 +93,7 @@ void Logman::FatalError(const char* format, ...)
 
     va_end(args);
 
-    // exit?
-    c.sdl.Exit();
+    exit(1);
 }
 
 void Logman::LogVaList(LogLevel level, const char* format, va_list args)
@@ -105,6 +104,7 @@ void Logman::LogVaList(LogLevel level, const char* format, va_list args)
         va_list args_copy;
         va_copy(args_copy, args);  // copy in case we're printing to both terminal and file
         vprintf(format, args_copy);
+        va_end(args_copy);
         printf("\n");
     }
 

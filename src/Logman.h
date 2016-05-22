@@ -5,11 +5,11 @@
  *      Author: stan
  */
 
-#include <stdarg.h>
-#include "Client.h"
+#pragma once
 
-#ifndef SRC_LOGMAN_H_
-#define SRC_LOGMAN_H_
+#include "Module.h"
+#include <stdarg.h>
+#include <stdio.h>
 
 enum LogLevel
 {
@@ -20,12 +20,9 @@ enum LogLevel
 
 class Logman : public Module
 {
-    using Module::Module;  // use Module's constructor
-
    public:
+    Logman(Client& c);
     ~Logman();
-
-    void Open();
 
     void LogError(const char* format, ...);
     void LogInfo(const char* format, ...);
@@ -43,5 +40,3 @@ class Logman : public Module
     void LogHeader();
     void LogVaList(LogLevel l, const char* format, va_list args);
 };
-
-#endif  // SRC_LOGMAN_H_

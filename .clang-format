@@ -6,4 +6,5 @@ BreakBeforeBraces: Allman
 AllowShortFunctionsOnASingleLine: Inline
 AllowShortBlocksOnASingleLine: false
 AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
 

@@ -4,32 +4,27 @@
  *  Created on: May 21, 2016
  *      Author: stan
  */
+#pragma once
 
-#include "Client.h"
-#include <memory>
+#include "Module.h"
 #include "../lib/inih/INIReader.h"
-using namespace std;
-
-#ifndef SRC_CONFIG_H_
-#define SRC_CONFIG_H_
 
 class Config : public Module
 {
-    using Module::Module;  // use Module's constructor
-
    public:
-    void ReadConfig();
+    Config(Client& c);
 
-    const char* Get(const char* section, const char* name, const char* default_value);
+    const char* GetString(const char* section, const char* name, const char* default_value);
+    const char* GetString(const char* section, const char* name, const char* def, bool (*IsAllowed)(const char*));
 
     i32 GetInt(const char* section, const char* name, i32 default_value);
+    i32 GetInt(const char* section, const char* name, i32 default_value, bool (*IsAllowed)(i32));
 
     double GetDouble(const char* section, const char* name, double default_value);
+    double GetDouble(const char* section, const char* name, double def, bool (*IsAllowed)(double));
 
     bool GetBoolean(const char* section, const char* name, bool default_value);
 
    private:
-    shared_ptr<INIReader> reader;
+    INIReader reader;
 };
-
-#endif  // SRC_CONFIG_H_

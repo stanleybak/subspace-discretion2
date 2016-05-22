@@ -7,26 +7,17 @@
 #ifndef SRC_CLIENT_H_
 #define SRC_CLIENT_H_
 
-#include <cstdint>
-typedef int32_t i32;
-typedef int16_t i16;
-typedef int8_t i8;
-typedef uint8_t u8;
+#include <memory>
+using namespace std;
 
-class Client;
-
-class Module
-{
-   public:
-    Module(Client& client) : c(client) {}
-
-   protected:
-    Client& c;
-};
-
-#include "SDLman.h"
-#include "Logman.h"
-#include "Config.h"
+// Use forward declarations for modules, rather than including all headers
+// This speed up compilation time on changes to any header file
+// When adding a new module, be sure to initialize the associated shared_ptr in Client::Client()
+class Logman;
+class Config;
+class SDLman;
+class Graphics;
+class Util;
 
 class Client
 {
@@ -34,9 +25,12 @@ class Client
     Client();
     void Start();
 
-    Logman log = Logman(*this);
-    Config cfg = Config(*this);
-    SDLman sdl = SDLman(*this);
+    // these must be pointers because we use forward declarations
+    shared_ptr<Logman> log;
+    shared_ptr<Config> cfg;
+    shared_ptr<SDLman> sdl;
+    shared_ptr<Graphics> graphics;
+    shared_ptr<Util> util;
 };
 
 #endif  // SRC_CLIENT_H_
