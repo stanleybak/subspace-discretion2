@@ -4,11 +4,44 @@
 using std::map;
 
 static map<LogLevel, const char*> LOG_PREFIX = {
-    {LOG_DRIVEL, "Drivel"}, {LOG_INFO, "Info"}, {LOG_ERROR, "Error"},
+    {LOG_DRIVEL, "[D]"}, {LOG_INFO, "[I]"}, {LOG_ERROR, "[ERROR]"},
 };
 
-Logman::Logman(Client& client) : Module(client)
+static const char* LOG_FILENAME = "log.txt";
+
+void Logman::Open()
 {
+    f = fopen(LOG_FILENAME, "w");
+
+    if (!f)
+        FatalError("Error Opening Log File: %s", LOG_FILENAME);
+    else
+        fprintf(f, "\n");
+
+    LogHeader();
+}
+
+Logman::~Logman()
+{
+    if (f)
+    {
+        fclose(f);
+        f = nullptr;
+    }
+}
+
+void Logman::LogHeader()
+{
+    char buf[128];
+    time_t rawtime;
+    struct tm timeinfo;
+
+    time(&rawtime);
+    localtime_r(&rawtime, &timeinfo);
+    // Wednesday, March 19, 2014 01:06:18 PM
+    strftime(buf, 80, "%A, %B %d, %Y %I:%M:%S %p", &timeinfo);
+
+    LogInfo("Log File Opened on %s", buf);
 }
 
 void Logman::LogError(const char* format, ...)
@@ -66,9 +99,27 @@ void Logman::FatalError(const char* format, ...)
 
 void Logman::LogVaList(LogLevel level, const char* format, va_list args)
 {
-    printf("%s: ", LOG_PREFIX[level]);
-    vprintf(format, args);
+    if (level >= logLevelPrint)
+    {
+        printf("%s ", LOG_PREFIX[level]);
+        va_list args_copy;
+        va_copy(args_copy, args);  // copy in case we're printing to both terminal and file
+        vprintf(format, args_copy);
+        printf("\n");
+    }
+
+    if (level >= logLevelSave && f != nullptr)
+    {
+        fprintf(f, "%s ", LOG_PREFIX[level]);
+        vfprintf(f, format, args);
+        fprintf(f, "\n");
+    }
 
     if (level >= LOG_ERROR)
+    {
         fflush(stdout);
+
+        if (f != nullptr)
+            fflush(f);
+    }
 }

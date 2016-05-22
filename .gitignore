@@ -1,1 +1,11 @@
 /Debug/
+/Release/
+log.txt
+*~
+Discretion2
+Discretion2.exe
+\#*\#
+.\#*
+*.d
+*.o
+DiscretionRelease

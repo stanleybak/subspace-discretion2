@@ -12,13 +12,19 @@
 
 class SDLman : public Module
 {
+    using Module::Module;  // use Module's constructor
+
    public:
-    SDLman(Client& client);
     ~SDLman();
 
+    void Init();
+    void MainLoop();
     void Exit();
 
    private:
+    void Render();
+    SDL_Texture* LoadTexture(const char* path);
+
     bool shouldExit = false;
     SDL_Window* window = nullptr;
     SDL_Renderer* renderer = nullptr;

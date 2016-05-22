@@ -6,7 +6,7 @@ int main()
 {
     Client c;
 
-    printf("exiting..");
+    c.Start();
 
     return 0;
 }
