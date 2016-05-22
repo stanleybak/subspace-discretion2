@@ -7,7 +7,7 @@
 #pragma once
 
 #include "Module.h"
-#include "../lib/inih/INIReader.h"
+#include <map>
 
 class Config : public Module
 {
@@ -23,8 +23,10 @@ class Config : public Module
     double GetDouble(const char* section, const char* name, double default_value);
     double GetDouble(const char* section, const char* name, double def, bool (*IsAllowed)(double));
 
-    bool GetBoolean(const char* section, const char* name, bool default_value);
+    // may return a null pointer; doesn't use c.log on missing values
+    const char* GetStringNoDefault(const char* section, const char* name);
 
    private:
-    INIReader reader;
+    void LoadSettings(const char* path);
+    map<string, map<string, string> > settingsMap;
 };

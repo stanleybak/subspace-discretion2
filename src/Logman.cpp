@@ -9,7 +9,10 @@ static map<LogLevel, const char*> LOG_PREFIX = {
 
 Logman::Logman(Client& client) : Module(client)
 {
-    const char* logFilename = c.cfg->GetString("log", "filename", "log.txt");
+    const char* logFilename = c.cfg->GetStringNoDefault("log", "filename");
+
+    if (logFilename == nullptr)
+        logFilename = "log.txt";
 
     f = fopen(logFilename, "w");
 
@@ -93,7 +96,7 @@ void Logman::FatalError(const char* format, ...)
 
     va_end(args);
 
-    exit(1);
+    abort();
 }
 
 void Logman::LogVaList(LogLevel level, const char* format, va_list args)

@@ -1,7 +1,6 @@
 
 #include "SDLman.h"
 #include "Graphics.h"
-#include "Util.h"
 
 SDLman::SDLman(Client& c) : Module(c)
 {
@@ -17,22 +16,21 @@ SDLman::SDLman(Client& c) : Module(c)
                               return val >= 100 && val <= 10000;
                           });
 
-    SDL_Rect windowRect = {0, 0, w, h};
+    c.log->LogDrivel("Creating window: %ix%i", w, h);
+    const char* title = c.cfg->GetString("video", "title", "Discretion2");
 
-    c.log->LogDrivel("Creating window: %i %i %i %i", windowRect.x, windowRect.y, windowRect.w, windowRect.h);
-
-    window = SDL_CreateWindow("Server", windowRect.x, windowRect.y, windowRect.w, windowRect.h, 0);
+    window = SDL_CreateWindow(title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h, 0);
 
     if (window == nullptr)
         c.log->FatalError("Failed to create window: %s", SDL_GetError());
 
-    renderer = SDL_CreateRenderer(window, -1, 0);
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
     if (renderer == nullptr)
         c.log->FatalError("Failed to create renderer: %s", SDL_GetError());
 
     // Set size of renderer to the same as window
-    SDL_RenderSetLogicalSize(renderer, windowRect.w, windowRect.h);
+    SDL_RenderSetLogicalSize(renderer, w, h);
 
     // Set color of renderer to black
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -92,25 +90,25 @@ void SDLman::MainLoop()
                                       return val > 0;
                                   });
 
-    i32 msPerIteration = 1000 / targetFps;
-    i32 lastIterationTime = c.util->getWallMills();
-    i32 now = 0, dif = 0;
+    u32 msPerIteration = round(1000.0 / targetFps);
+    u32 lastIterationMs = SDL_GetTicks();
+    u32 nowMs = 0, difMs = 0;
 
     while (!shouldExit)
     {
         do
         {
-            now = c.util->getWallMills();
-            dif = now - lastIterationTime;
+            nowMs = SDL_GetTicks();
+            difMs = nowMs - lastIterationMs;
 
-            if (dif < msPerIteration)
+            if (difMs < msPerIteration)
                 SDL_Delay(1);
-        } while (dif < msPerIteration);
+        } while (difMs < msPerIteration);
 
-        int difMs = now - lastIterationTime;
+        difMs = nowMs - lastIterationMs;
         DoIteration(difMs);
 
-        lastIterationTime = now;
+        lastIterationMs = nowMs;
     }
 }
 

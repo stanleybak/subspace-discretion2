@@ -3,7 +3,7 @@
 CC=g++
 LN=g++
 
-CFLAGS =  -Ilib/inih -Isrc -Wall `sdl2-config --cflags`
+CFLAGS = -Iinclude -Wall `sdl2-config --cflags`
 LDFLAGS = `sdl2-config --libs`
 
 # use regular or debug cflags
@@ -49,11 +49,9 @@ clean:
 	rm -vrf $(RELEASE_DIR)
 	rm -vf src/*.o
 	rm -vf src/*.d
-	rm -vf lib/inih/*.o
-	rm -vf lib/inih/*.d
 
 CPP_FILES =  $(wildcard src/*.cpp)
-CPP_FILES += $(wildcard lib/inih/*.cpp)
+#CPP_FILES += $(wildcard lib/inih/*.cpp)
 
 OBJS := $(CPP_FILES:.cpp=.o)
 
