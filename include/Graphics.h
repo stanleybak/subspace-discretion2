@@ -9,6 +9,8 @@
 #include "Module.h"
 #include <SDL2/SDL_image.h>
 
+struct GraphicsData;
+
 // obtain these through Graphics->LoadImage()
 struct Image
 {
@@ -23,6 +25,25 @@ struct Image
     i32 curAnimTime = 0;
 };
 
+// The layer enum, note you can define your own layers between these ones if you want
+enum Layer
+{
+    Layer_BelowAll = 50,
+    Layer_Background = 100,
+    Layer_AfterBackground = 150,
+    Layer_Tiles = 200,
+    Layer_AfterTiles = 250,
+    Layer_Weapons = 300,
+    Layer_AfterWeapons = 350,
+    Layer_Ships = 400,
+    Layer_AfterShips = 450,
+    Layer_Gauges = 500,
+    Layer_AfterGauges = 550,
+    Layer_Chat = 600,
+    Layer_AfterChat = 650,
+    Layer_TopMost = 700
+};
+
 class Graphics : public Module
 {
    public:
@@ -30,9 +51,17 @@ class Graphics : public Module
     ~Graphics();
 
     void Render(i32 difMs);
-    shared_ptr<Image> LoadAnimation(const char* name, i32 w, i32 h, i32 frameOffset, i32 numFrames, i32 animMs);
+    shared_ptr<Image> LoadAnimation(const char* name, i32 w, i32 h, i32 frameOffset, i32 numFrames,
+                                    i32 animMs);
     shared_ptr<Image> LoadImage(const char* name);
 
+    SDL_Texture* SurfaceToTexture(SDL_Surface* surf);
+    SDL_Renderer* getRenderer();
+
+    // draw a function at a particular layer
+    void AddDrawFunction(Layer l, void (*drawFunc)(Client* c, void* param), void* param);
+    void RemoveDrawFunction(Layer l, void (*drawFunc)(Client* c, void* param), void* param);
+
    private:
-    SDL_Texture* notFoundTexture = nullptr;
+    shared_ptr<GraphicsData> data;
 };

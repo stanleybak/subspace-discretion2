@@ -1,78 +1,64 @@
 
 #include "SDLman.h"
 #include "Graphics.h"
+#include "Text.h"
 
-SDLman::SDLman(Client& c) : Module(c)
+struct SDLmanData
+{
+    SDLmanData(Client& client) : c(client) {}
+    Client& c;
+    i32 fpsMsRemaining = 1000;
+    i32 fpsFrameCount = 0;
+    i32 currentFps = 0;
+
+    bool shouldExit = false;
+
+    void AdvanceState(i32 difMs);
+    void DoEvents(SDL_Event* event);
+    void DoIteration(i32 difMs);
+    void UpdateFps(i32 difMs);
+};
+
+static void DrawFps(Client* c, void* param)
+{
+    int* fpsPtr = (int*)param;
+
+    c->text->DrawTextScreen(Text_Red, 100, 50, "FPS: %d", *fpsPtr);
+}
+
+void SDLmanData::UpdateFps(i32 difMs)
+{
+    ++fpsFrameCount;
+    fpsMsRemaining -= difMs;
+
+    if (fpsMsRemaining <= 0)
+    {
+        currentFps = fpsFrameCount;
+
+        fpsMsRemaining = 1000;
+        fpsFrameCount = 0;
+    }
+}
+
+SDLman::SDLman(Client& c) : Module(c), data(make_shared<SDLmanData>(c))
 {
     if (SDL_Init(SDL_INIT_EVERYTHING) == -1)
         c.log->FatalError("Failed to initialize SDL: %s", SDL_GetError());
-
-    int w = c.cfg->GetInt("video", "width", 800, [](i32 val)
-                          {
-                              return val >= 100 && val <= 10000;
-                          });
-    int h = c.cfg->GetInt("video", "height", 600, [](i32 val)
-                          {
-                              return val >= 100 && val <= 10000;
-                          });
-
-    c.log->LogDrivel("Creating window: %ix%i", w, h);
-    const char* title = c.cfg->GetString("video", "title", "Discretion2");
-
-    window = SDL_CreateWindow(title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h, 0);
-
-    if (window == nullptr)
-        c.log->FatalError("Failed to create window: %s", SDL_GetError());
-
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-
-    if (renderer == nullptr)
-        c.log->FatalError("Failed to create renderer: %s", SDL_GetError());
-
-    // Set size of renderer to the same as window
-    SDL_RenderSetLogicalSize(renderer, w, h);
-
-    // Set color of renderer to black
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
 
     c.log->LogDrivel("SDL Initialized Correctly");
 }
 
 SDLman::~SDLman()
 {
-    SDL_DestroyRenderer(renderer);
-    renderer = nullptr;
-
-    SDL_DestroyWindow(window);
-    window = nullptr;
-
     SDL_Quit();
-}
-
-SDL_Texture* SDLman::LoadTexture(const char* path)
-{
-    SDL_Texture* rv = nullptr;
-    SDL_Surface* surface = IMG_Load(path);
-
-    if (surface)
-    {
-        // SDL_Surface is just the raw pixels
-        // Convert it to a hardware-optimized texture so we can render it
-        rv = SDL_CreateTextureFromSurface(renderer, surface);
-
-        // Don't need the original texture, release the memory
-        SDL_FreeSurface(surface);
-    }
-
-    return rv;
 }
 
 void SDLman::Exit()
 {
-    shouldExit = true;
+    data->shouldExit = true;
 }
 
-void SDLman::DoIteration(i32 difMs)
+void SDLmanData::DoIteration(i32 difMs)
 {
     SDL_Event event;
 
@@ -80,12 +66,15 @@ void SDLman::DoIteration(i32 difMs)
         DoEvents(&event);
 
     AdvanceState(difMs);
-    Render(difMs);
+
+    UpdateFps(difMs);
+
+    c.graphics->Render(difMs);
 }
 
 void SDLman::MainLoop()
 {
-    i32 targetFps = c.cfg->GetInt("video", "targetfps", 60, [](i32 val)
+    i32 targetFps = c.cfg->GetInt("video", "target_fps", 60, [](i32 val)
                                   {
                                       return val > 0;
                                   });
@@ -94,7 +83,9 @@ void SDLman::MainLoop()
     u32 lastIterationMs = SDL_GetTicks();
     u32 nowMs = 0, difMs = 0;
 
-    while (!shouldExit)
+    c.graphics->AddDrawFunction(Layer_Chat, DrawFps, &data->currentFps);
+
+    while (!data->shouldExit)
     {
         do
         {
@@ -106,13 +97,13 @@ void SDLman::MainLoop()
         } while (difMs < msPerIteration);
 
         difMs = nowMs - lastIterationMs;
-        DoIteration(difMs);
+        data->DoIteration(difMs);
 
         lastIterationMs = nowMs;
     }
 }
 
-void SDLman::DoEvents(SDL_Event* event)
+void SDLmanData::DoEvents(SDL_Event* event)
 {
     if (event->type == SDL_QUIT)
     {
@@ -145,17 +136,6 @@ void SDLman::DoEvents(SDL_Event* event)
     }
 }
 
-void SDLman::AdvanceState(i32 difMs)
+void SDLmanData::AdvanceState(i32 difMs)
 {
-}
-
-void SDLman::Render(i32 difMs)
-{
-    // Clear the window
-    SDL_RenderClear(renderer);
-
-    c.graphics->Render(difMs);
-
-    // Render the changes above
-    SDL_RenderPresent(renderer);
 }

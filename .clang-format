@@ -1,7 +1,7 @@
 BasedOnStyle: Google
 IndentWidth: 4
 UseTab: Never
-ColumnLimit: 200
+ColumnLimit: 100
 BreakBeforeBraces: Allman
 AllowShortFunctionsOnASingleLine: Inline
 AllowShortBlocksOnASingleLine: false

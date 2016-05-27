@@ -42,6 +42,7 @@
 								<option id="gnu.cpp.link.option.libs.1602121607" name="Libraries (-l)" superClass="gnu.cpp.link.option.libs" valueType="libs">
 									<listOptionValue builtIn="false" value="SDL2"/>
 									<listOptionValue builtIn="false" value="SDL2_image"/>
+									<listOptionValue builtIn="false" value="SDL2_ttf"/>
 								</option>
 								<option id="gnu.cpp.link.option.flags.415772925" name="Linker flags" superClass="gnu.cpp.link.option.flags" value="`sdl2-config --libs`" valueType="string"/>
 								<inputType id="cdt.managedbuild.tool.gnu.cpp.linker.input.1167594739" superClass="cdt.managedbuild.tool.gnu.cpp.linker.input">

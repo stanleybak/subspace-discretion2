@@ -244,17 +244,21 @@ const char* Config::GetString(const char* section, const char* name, const char*
 
     if (val == nullptr && c.log)
         c.log->LogDrivel("String setting %s::%s not found; defaulting to '%s'", section, name, def);
+    else
+        rv = val;
 
     return rv;
 }
 
-const char* Config::GetString(const char* section, const char* name, const char* def, bool (*IsAllowed)(const char*))
+const char* Config::GetString(const char* section, const char* name, const char* def,
+                              bool (*IsAllowed)(const char*))
 {
     const char* val = GetString(section, name, def);
 
     if (!IsAllowed(val))
     {
-        c.log->LogError("Invalid value for setting %s::%s='%s'. Using default of '%s'.", section, name, val, def);
+        c.log->LogError("Invalid value for setting %s::%s='%s'. Using default of '%s'.", section,
+                        name, val, def);
         val = def;
     }
 
@@ -276,7 +280,8 @@ i32 Config::GetInt(const char* section, const char* name, i32 def)
         if (*end == '\0')
             rv = i;
         else
-            c.log->LogError("Malformed int setting %s::%s='%s'; defaulting to %d", section, name, val, def);
+            c.log->LogError("Malformed int setting %s::%s='%s'; defaulting to %d", section, name,
+                            val, def);
     }
 
     return rv;
@@ -288,16 +293,24 @@ i32 Config::GetInt(const char* section, const char* name, i32 def, bool (*IsAllo
 
     if (!IsAllowed(val))
     {
-        c.log->LogError("Invalid value for setting %s::%s=%i. Using default of %i.", section, name, val, def);
+        c.log->LogError("Invalid value for setting %s::%s=%i. Using default of %i.", section, name,
+                        val, def);
         val = def;
     }
 
     return val;
 }
 
-const char* Config::GetStringNoDefault(const char* section, const char* name)
+const char* Config::GetStringNoDefault(const char* sectionCstr, const char* nameCstr)
 {
     const char* rv = nullptr;
+
+    string section = sectionCstr;
+    toLower(&section);
+
+    string name = nameCstr;
+    toLower(&name);
+
     auto sec = settingsMap.find(section);
 
     if (sec != settingsMap.end())
@@ -326,19 +339,22 @@ double Config::GetDouble(const char* section, const char* name, double def)
         if (*end == '\0')
             rv = d;
         else
-            c.log->LogError("Malformed double setting %s::%s='%s'; defaulting to %f", section, name, val, def);
+            c.log->LogError("Malformed double setting %s::%s='%s'; defaulting to %f", section, name,
+                            val, def);
     }
 
     return rv;
 }
 
-double Config::GetDouble(const char* section, const char* name, double def, bool (*IsAllowed)(double))
+double Config::GetDouble(const char* section, const char* name, double def,
+                         bool (*IsAllowed)(double))
 {
     double val = GetDouble(section, name, def);
 
     if (!IsAllowed(val))
     {
-        c.log->LogError("Invalid value for setting %s::%s=%i. Using default of %f.", section, name, val, def);
+        c.log->LogError("Invalid value for setting %s::%s=%i. Using default of %f.", section, name,
+                        val, def);
         val = def;
     }
 

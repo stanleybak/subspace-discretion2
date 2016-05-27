@@ -1,6 +1,7 @@
 #include "Logman.h"
 #include "Config.h"
 #include <map>
+#include <stdarg.h>
 using std::map;
 
 static map<LogLevel, const char*> LOG_PREFIX = {

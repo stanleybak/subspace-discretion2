@@ -15,7 +15,8 @@ class Config : public Module
     Config(Client& c);
 
     const char* GetString(const char* section, const char* name, const char* default_value);
-    const char* GetString(const char* section, const char* name, const char* def, bool (*IsAllowed)(const char*));
+    const char* GetString(const char* section, const char* name, const char* def,
+                          bool (*IsAllowed)(const char*));
 
     i32 GetInt(const char* section, const char* name, i32 default_value);
     i32 GetInt(const char* section, const char* name, i32 default_value, bool (*IsAllowed)(i32));

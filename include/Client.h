@@ -15,6 +15,7 @@ class Logman;
 class Config;
 class SDLman;
 class Graphics;
+class Text;
 
 class Client
 {
@@ -22,9 +23,11 @@ class Client
     Client();
     void Start();
 
-    // these must be pointers because we use forward declarations (since the sizes of the types are unknown)
+    // these must be pointers because we use forward declarations (since the sizes of the types are
+    // unknown)
     shared_ptr<Config> cfg;
     shared_ptr<Logman> log;
     shared_ptr<SDLman> sdl;
     shared_ptr<Graphics> graphics;
+    shared_ptr<Text> text;
 };
