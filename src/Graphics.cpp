@@ -421,7 +421,7 @@ shared_ptr<DrawnText> Graphics::MakeDrawnText(Layer layer, TextColor color, i32 
     }
 
     SDL_Color backgroundColor = {0, 0, 0, 255};  // black
-    SDL_Surface* surf = TTF_RenderText_Shaded(data->font, buf, textColor, backgroundColor);
+    SDL_Surface* surf = TTF_RenderUTF8_Shaded(data->font, buf, textColor, backgroundColor);
     SDL_Texture* tex = data->SurfaceToTexture(surf);
 
     shared_ptr<ManagedTexture> mt = make_shared<ManagedTexture>(tex);

@@ -1,0 +1,1 @@
+For international typing on linux, I had to make sure my sdl was compiled with ibus support. This involved installing package 'libibus-1.0-dev' before I did './configure' for sdl2. After this, the last line after running ./configure was 'Using ibus      : YES'.
