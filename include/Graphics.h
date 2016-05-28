@@ -11,20 +11,6 @@
 
 struct GraphicsData;
 
-// obtain these through Graphics->LoadImage()
-struct Image
-{
-    ~Image();
-
-    SDL_Texture* texture = nullptr;
-    i32 framesW = 1;
-    i32 framesH = 1;
-    i32 numFrames = 1;
-    i32 frameOffset = 0;
-    i32 animMs = 1000;  // animation time, in milliseconds
-    i32 curAnimTime = 0;
-};
-
 // The layer enum, note you can define your own layers between these ones if you want
 enum Layer
 {
@@ -44,6 +30,65 @@ enum Layer
     Layer_TopMost = 700
 };
 
+enum TextColor
+{
+    Text_Red,
+    Text_Blue,
+};
+
+// an sdl_texture with automatic memory management
+class ManagedTexture;
+
+// an automatically-drawn object
+class DrawnObject;
+
+// automatically-drawn text
+class DrawnText
+{
+   public:
+    DrawnText(shared_ptr<DrawnObject> d) : d(d) {}
+
+    // void SetPosition(i32 x, i32 y);
+   private:
+    shared_ptr<DrawnObject> d;
+};
+
+struct Image
+{
+   public:
+    Image(int numXFrames, int numYFrames, shared_ptr<ManagedTexture> tex, const char* filename);
+
+    i32 numXFrames = 1;  // x frames in texture
+    i32 numYFrames = 1;  // y frames in texture
+
+    i32 frameWidth = -1;
+    i32 frameHeight = -1;
+    i32 halfFrameWidth = -1;
+    i32 halfFrameHeight = -1;
+
+    i32 textureWidth = -1;
+    i32 textureHeight = -1;
+    shared_ptr<ManagedTexture> texture;
+    string filename;
+};
+
+// automatically-drawn image
+class DrawnImage
+{
+   public:
+    DrawnImage(shared_ptr<GraphicsData> gd, Layer layer, shared_ptr<Image> i);
+
+    void SetFrame(u32 frameNum);
+    void SetCenteredScreenPosition(i32 x, i32 y);
+
+   private:
+    u32 lastFrameNum = 0;
+
+    shared_ptr<GraphicsData> gd;
+    shared_ptr<Image> image;
+    shared_ptr<DrawnObject> drawnObj;
+};
+
 class Graphics : public Module
 {
    public:
@@ -51,16 +96,17 @@ class Graphics : public Module
     ~Graphics();
 
     void Render(i32 difMs);
-    shared_ptr<Image> LoadAnimation(const char* name, i32 w, i32 h, i32 frameOffset, i32 numFrames,
-                                    i32 animMs);
-    shared_ptr<Image> LoadImage(const char* name);
+    void GetScreenSize(i32* w, i32* h);
 
-    SDL_Texture* SurfaceToTexture(SDL_Surface* surf);
-    SDL_Renderer* getRenderer();
+    // text will keep getting drawn until object is disposed
+    shared_ptr<DrawnText> MakeDrawnText(Layer layer, TextColor color, i32 x, i32 y,
+                                        const char* formatStr, ...);
 
-    // draw a function at a particular layer
-    void AddDrawFunction(Layer l, void (*drawFunc)(Client* c, void* param), void* param);
-    void RemoveDrawFunction(Layer l, void (*drawFunc)(Client* c, void* param), void* param);
+    // image will keep getting drawn until object is disposed
+    shared_ptr<DrawnImage> MakeDrawnImage(Layer layer, shared_ptr<Image> image);
+
+    shared_ptr<Image> LoadImage(const char* filename);
+    shared_ptr<Image> LoadImage(const char* filename, u32 framesW, u32 framesH);
 
    private:
     shared_ptr<GraphicsData> data;

@@ -1,7 +1,7 @@
 
 #include "SDLman.h"
 #include "Graphics.h"
-#include "Text.h"
+#include "Ships.h"
 
 struct SDLmanData
 {
@@ -9,7 +9,7 @@ struct SDLmanData
     Client& c;
     i32 fpsMsRemaining = 1000;
     i32 fpsFrameCount = 0;
-    i32 currentFps = 0;
+    shared_ptr<DrawnText> fpsText;
 
     bool shouldExit = false;
 
@@ -19,13 +19,6 @@ struct SDLmanData
     void UpdateFps(i32 difMs);
 };
 
-static void DrawFps(Client* c, void* param)
-{
-    int* fpsPtr = (int*)param;
-
-    c->text->DrawTextScreen(Text_Red, 100, 50, "FPS: %d", *fpsPtr);
-}
-
 void SDLmanData::UpdateFps(i32 difMs)
 {
     ++fpsFrameCount;
@@ -33,7 +26,8 @@ void SDLmanData::UpdateFps(i32 difMs)
 
     if (fpsMsRemaining <= 0)
     {
-        currentFps = fpsFrameCount;
+        fpsText =
+            c.graphics->MakeDrawnText(Layer_Chat, Text_Red, 150, 20, "FPS: %d", fpsFrameCount);
 
         fpsMsRemaining = 1000;
         fpsFrameCount = 0;
@@ -83,8 +77,6 @@ void SDLman::MainLoop()
     u32 lastIterationMs = SDL_GetTicks();
     u32 nowMs = 0, difMs = 0;
 
-    c.graphics->AddDrawFunction(Layer_Chat, DrawFps, &data->currentFps);
-
     while (!data->shouldExit)
     {
         do
@@ -101,6 +93,10 @@ void SDLman::MainLoop()
 
         lastIterationMs = nowMs;
     }
+
+    // explicitly free it here
+    if (data->fpsText)
+        data->fpsText = nullptr;
 }
 
 void SDLmanData::DoEvents(SDL_Event* event)
@@ -138,4 +134,5 @@ void SDLmanData::DoEvents(SDL_Event* event)
 
 void SDLmanData::AdvanceState(i32 difMs)
 {
+    c.ships->AdvanceState(difMs);
 }
