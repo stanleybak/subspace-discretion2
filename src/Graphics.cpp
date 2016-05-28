@@ -2,6 +2,7 @@
 #include "SDLman.h"
 #include "SDL2/SDL_ttf.h"
 #include <map>
+#include <unordered_set>
 
 class ManagedTexture
 {
@@ -44,7 +45,6 @@ struct GraphicsData
     string graphicsFolder;
 
     TTF_Font* font = nullptr;
-    multimap<Layer, DrawnObject*> drawnObjs;
 
     i32 windowW = 1, windowH = 1;
     SDL_Window* window = nullptr;
@@ -53,6 +53,11 @@ struct GraphicsData
     shared_ptr<ManagedTexture> notFoundTexture = nullptr;
     SDL_Texture* SurfaceToTexture(SDL_Surface* s);
     shared_ptr<ManagedTexture> LoadTexture(const char* filename);
+
+    u32 nowMs = 0;  // for tracking single animation expiration time
+    multimap<Layer, DrawnObject*> drawnObjs;
+    multimap<u32, shared_ptr<DrawnImage>> singleAnimations;  // expirationMs -> DrawnImage
+    unordered_set<DrawnImage*> animations;
 };
 
 shared_ptr<ManagedTexture> GraphicsData::LoadTexture(const char* filename)
@@ -60,17 +65,10 @@ shared_ptr<ManagedTexture> GraphicsData::LoadTexture(const char* filename)
     string path = graphicsFolder + "/" + filename;
 
     shared_ptr<ManagedTexture> rv = nullptr;
+    SDL_Surface* surface = nullptr;
 
     if (strchr(filename, '.') != nullptr)
-    {
-        SDL_Surface* surface = IMG_Load(path.c_str());
-
-        if (surface)
-        {
-            SDL_Texture* rawTexture = SurfaceToTexture(surface);
-            rv = make_shared<ManagedTexture>(rawTexture);
-        }
-    }
+        surface = IMG_Load(path.c_str());
     else
     {
         // try a bunch of image extensions
@@ -81,20 +79,27 @@ shared_ptr<ManagedTexture> GraphicsData::LoadTexture(const char* filename)
         {
             string tryPath = path + ext;
 
-            SDL_Surface* surface = IMG_Load(tryPath.c_str());
+            surface = IMG_Load(tryPath.c_str());
 
             if (surface)
-            {
-                SDL_Texture* rawTexture = SurfaceToTexture(surface);
-                rv = make_shared<ManagedTexture>(rawTexture);
                 break;
-            }
         }
 
-        path += ".png";  // for the error message
+        if (!surface)
+            path += ".png";  // for the error message
     }
 
-    if (rv == nullptr)
+    if (surface)
+    {
+        c.log->LogDrivel("Loaded image from '%s'", filename);
+
+        if (SDL_SetColorKey(surface, SDL_TRUE, SDL_MapRGB(surface->format, 0, 0, 0)))
+            c.log->LogError("SDL_SetColorKey failed on '%s': %s", filename, SDL_GetError());
+
+        SDL_Texture* rawTexture = SurfaceToTexture(surface);
+        rv = make_shared<ManagedTexture>(rawTexture);
+    }
+    else
     {
         c.log->LogError("Error loading image at path '%s'", path.c_str());
         rv = notFoundTexture;
@@ -161,13 +166,40 @@ DrawnObject::~DrawnObject()
         gd->c.log->LogError("Drawable::~Drawable Unregistering drawable not found in draw list.");
 }
 
-DrawnImage::DrawnImage(shared_ptr<GraphicsData> gd, Layer layer, shared_ptr<Image> i)
-    : gd(gd), image(i)
+DrawnImage::DrawnImage(shared_ptr<GraphicsData> gd, Layer layer, u32 animMs, u32 animFrameOffset,
+                       u32 animNumFrames, shared_ptr<Image> i)
+    : animMs(animMs),
+      animFrameOffset(animFrameOffset),
+      animNumFrames(animNumFrames),
+      gd(gd),
+      image(i)
 {
     drawnObj = make_shared<DrawnObject>(gd, layer, image->texture, image->filename.c_str());
 
     drawnObj->dest.w = drawnObj->src.w = image->frameWidth;
     drawnObj->dest.h = drawnObj->src.h = image->frameHeight;
+
+    // if it's an animation, add it to the animation list
+    if (animMs > 0)
+        gd->animations.insert(this);
+}
+
+DrawnImage::~DrawnImage()
+{
+    if (animMs > 0)
+        gd->animations.erase(this);
+}
+
+void DrawnImage::AdvanceAnimation(u32 mills)
+{
+    animMsElapsed += mills;
+
+    while (animMsElapsed >= animMs)
+        animMsElapsed -= animMs;
+
+    u32 frameInAnimation = animMsElapsed * animNumFrames / animMs;
+
+    SetFrame(animFrameOffset + frameInAnimation);
 }
 
 void DrawnImage::SetFrame(u32 frameNum)
@@ -191,6 +223,11 @@ void DrawnImage::SetFrame(u32 frameNum)
     }
 }
 
+u32 DrawnImage::GetFrame()
+{
+    return lastFrameNum;
+}
+
 void DrawnImage::SetCenteredScreenPosition(i32 x, i32 y)
 {
     drawnObj->dest.x = x - image->halfFrameHeight;
@@ -206,6 +243,16 @@ Image::Image(int numXFrames, int numYFrames, shared_ptr<ManagedTexture> tex, con
     frameHeight = textureHeight / numYFrames;
     halfFrameWidth = frameWidth / 2;
     halfFrameHeight = frameHeight / 2;
+}
+
+Animation::Animation(shared_ptr<Image> i, u32 animMs, u32 animFrameOffset, u32 animNumFrames)
+    : image(i), animMs(animMs), animFrameOffset(animFrameOffset), animNumFrames(animNumFrames)
+{
+}
+
+Animation::Animation(shared_ptr<Image> i, u32 animMs)
+    : image(i), animMs(animMs), animFrameOffset(0), animNumFrames(i->numXFrames * i->numYFrames)
+{
 }
 
 Graphics::Graphics(Client& c) : Module(c), data(make_shared<GraphicsData>(c))
@@ -274,6 +321,8 @@ Graphics::Graphics(Client& c) : Module(c), data(make_shared<GraphicsData>(c))
         c.log->FatalError("Loading font from '%s' with size %d failed: %s", fontPath.c_str(), size,
                           TTF_GetError());
     }
+    else
+        c.log->LogDrivel("Loaded font from '%s'", fontPath.c_str());
 }
 
 Graphics::~Graphics()
@@ -292,11 +341,23 @@ Graphics::~Graphics()
 
 void Graphics::Render(i32 difMs)
 {
+    data->nowMs += difMs;
+
+    // possibly delete single animations
+    for (auto it = data->singleAnimations.cbegin(); it != data->singleAnimations.cend();)
+    {
+        if (data->nowMs >= it->first)
+            data->singleAnimations.erase(it++);
+        else
+            ++it;
+    }
+
+    // advance all animations
+    for (auto it : data->animations)
+        it->AdvanceAnimation(difMs);
+
     // Clear the window
     SDL_RenderClear(data->renderer);
-
-    // SDL_Rect pos = {100, 100, 200, 200};
-    // SDL_RenderCopy(data->renderer, data->notFoundTexture, NULL, &pos);
 
     for (auto it : data->drawnObjs)
         it.second->Draw(data->renderer);
@@ -313,9 +374,25 @@ void Graphics::GetScreenSize(i32* w, i32* h)
 
 shared_ptr<DrawnImage> Graphics::MakeDrawnImage(Layer layer, shared_ptr<Image> image)
 {
-    shared_ptr<DrawnImage> rv = make_shared<DrawnImage>(data, layer, image);
+    shared_ptr<DrawnImage> rv = make_shared<DrawnImage>(data, layer, 0, 0, 0, image);
 
     return rv;
+}
+
+shared_ptr<DrawnImage> Graphics::MakeDrawnAnimation(Layer layer, shared_ptr<Animation> anim)
+{
+    shared_ptr<DrawnImage> rv = make_shared<DrawnImage>(
+        data, layer, anim->animMs, anim->animFrameOffset, anim->animNumFrames, anim->image);
+
+    return rv;
+}
+
+void Graphics::MakeSingleDrawnAnimation(Layer layer, i32 x, i32 y, shared_ptr<Animation> anim)
+{
+    shared_ptr<DrawnImage> rv = MakeDrawnAnimation(layer, anim);
+    rv->SetCenteredScreenPosition(x, y);
+
+    data->singleAnimations.insert(make_pair(data->nowMs + anim->animMs, rv));
 }
 
 shared_ptr<DrawnText> Graphics::MakeDrawnText(Layer layer, TextColor color, i32 x, i32 y,

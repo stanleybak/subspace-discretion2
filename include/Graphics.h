@@ -55,7 +55,6 @@ class DrawnText
 
 struct Image
 {
-   public:
     Image(int numXFrames, int numYFrames, shared_ptr<ManagedTexture> tex, const char* filename);
 
     i32 numXFrames = 1;  // x frames in texture
@@ -72,17 +71,36 @@ struct Image
     string filename;
 };
 
+struct Animation
+{
+    Animation(shared_ptr<Image> i, u32 animMs, u32 animFrameOffset, u32 animNumFrames);
+    Animation(shared_ptr<Image> i, u32 animMs);
+
+    shared_ptr<Image> image;
+    u32 animMs;
+    u32 animFrameOffset;
+    u32 animNumFrames;
+};
+
 // automatically-drawn image
 class DrawnImage
 {
    public:
-    DrawnImage(shared_ptr<GraphicsData> gd, Layer layer, shared_ptr<Image> i);
+    DrawnImage(shared_ptr<GraphicsData> gd, Layer layer, u32 animMs, u32 animFrameOffset,
+               u32 animNumFrames, shared_ptr<Image> i);
+    ~DrawnImage();
 
+    u32 GetFrame();
     void SetFrame(u32 frameNum);
     void SetCenteredScreenPosition(i32 x, i32 y);
+    void AdvanceAnimation(u32 mills);
 
    private:
     u32 lastFrameNum = 0;
+    u32 animMsElapsed = 0;
+    u32 animMs = 0;  // 0 = no animation
+    u32 animFrameOffset = 0;
+    u32 animNumFrames = 0;
 
     shared_ptr<GraphicsData> gd;
     shared_ptr<Image> image;
@@ -104,6 +122,10 @@ class Graphics : public Module
 
     // image will keep getting drawn until object is disposed
     shared_ptr<DrawnImage> MakeDrawnImage(Layer layer, shared_ptr<Image> image);
+    shared_ptr<DrawnImage> MakeDrawnAnimation(Layer layer, shared_ptr<Animation> anim);
+
+    // will loop once
+    void MakeSingleDrawnAnimation(Layer layer, i32 x, i32 y, shared_ptr<Animation> anim);
 
     shared_ptr<Image> LoadImage(const char* filename);
     shared_ptr<Image> LoadImage(const char* filename, u32 framesW, u32 framesH);
