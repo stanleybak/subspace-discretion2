@@ -2,6 +2,7 @@
 #include "SDLman.h"
 #include "Graphics.h"
 #include "Ships.h"
+#include "Chat.h"
 
 struct SDLmanData
 {
@@ -14,7 +15,7 @@ struct SDLmanData
     bool shouldExit = false;
 
     void AdvanceState(i32 difMs);
-    void DoEvents(SDL_Event* event);
+    void ProcessEvent(SDL_Event* event);
     void DoIteration(i32 difMs);
     void UpdateFps(i32 difMs);
 };
@@ -26,8 +27,9 @@ void SDLmanData::UpdateFps(i32 difMs)
 
     if (fpsMsRemaining <= 0)
     {
-        fpsText =
-            c.graphics->MakeDrawnText(Layer_Chat, Text_Red, 150, 20, "FPS: %d", fpsFrameCount);
+        string text = "FPS: " + to_string(fpsFrameCount);
+        fpsText = c.graphics->MakeDrawnText(Layer_Chat, Color_Red, 0, text.c_str());
+        fpsText->SetPosition(150, 20);
 
         fpsMsRemaining = 1000;
         fpsFrameCount = 0;
@@ -57,7 +59,7 @@ void SDLmanData::DoIteration(i32 difMs)
     SDL_Event event;
 
     while (SDL_PollEvent(&event))
-        DoEvents(&event);
+        ProcessEvent(&event);
 
     AdvanceState(difMs);
 
@@ -77,6 +79,14 @@ void SDLman::MainLoop()
     u32 lastIterationMs = SDL_GetTicks();
     u32 nowMs = 0, difMs = 0;
 
+    SDL_StartTextInput();
+
+    u32 w = 0, h = 0;
+    c.graphics->GetScreenSize(&w, &h);
+
+    SDL_Rect rect = {50, (i32)h - 150, 0, 0};
+    SDL_SetTextInputRect(&rect);
+
     while (!data->shouldExit)
     {
         do
@@ -94,41 +104,58 @@ void SDLman::MainLoop()
         lastIterationMs = nowMs;
     }
 
+    SDL_StopTextInput();
+
     // explicitly free it here
     if (data->fpsText)
         data->fpsText = nullptr;
 }
 
-void SDLmanData::DoEvents(SDL_Event* event)
+void SDLmanData::ProcessEvent(SDL_Event* event)
 {
-    if (event->type == SDL_QUIT)
+    switch (event->type)
     {
-        shouldExit = true;
+        case SDL_QUIT:
+            shouldExit = true;
 
-        // pop all other events (ignoring them)
-        while (SDL_PollEvent(event))
-            ;
-    }
-    else if (event->type == SDL_KEYDOWN)
-    {
-        switch (event->key.keysym.sym)
-        {
-            /*case SDLK_RIGHT:
-                    playerPos.x += movementFactor;
-                    break;
-            case SDLK_LEFT:
-                    playerPos.x -= movementFactor;
-                    break;
-            // Remeber 0,0 in SDL is left-top. So when the user pressus down, the y need to increase
-            case SDLK_DOWN:
-                    playerPos.y += movementFactor;
-                    break;
-            case SDLK_UP:
-                    playerPos.y -= movementFactor;
-                    break;*/
-            default:
-                break;
-        }
+            // pop all other events (ignoring them)
+            while (SDL_PollEvent(event))
+                ;
+
+            break;
+        case SDL_TEXTINPUT:
+            c.chat->TextTyped(event->text.text);
+
+            break;
+        case SDL_KEYDOWN:
+
+            if (event->key.keysym.sym == SDLK_BACKSPACE)
+                c.chat->TextBackspace();
+
+            if (event->key.repeat == 0)
+            {
+                switch (event->key.keysym.sym)
+                {
+                    /*case SDLK_RIGHT:
+                                    playerPos.x += movementFactor;
+                                    break;
+                    case SDLK_LEFT:
+                                    playerPos.x -= movementFactor;
+                                    break;
+                    // Remeber 0,0 in SDL is left-top. So when the user pressus down, the y need to
+                    increase*/
+                    case SDLK_DOWN:
+                        printf("down arrow\n");
+                        break;
+                    case SDLK_UP:
+                        printf("up arrow\n");
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            break;
     }
 }
 

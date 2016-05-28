@@ -4,6 +4,7 @@
 #include "Config.h"
 #include "Graphics.h"
 #include "Ships.h"
+#include "Chat.h"
 
 Client::Client()
     :  // initialization order matters, add to the end
@@ -11,6 +12,7 @@ Client::Client()
       log(make_shared<Logman>(*this)),
       sdl(make_shared<SDLman>(*this)),
       graphics(make_shared<Graphics>(*this)),
+      chat(make_shared<Chat>(*this)),
       ships(make_shared<Ships>(*this))
 {
 }

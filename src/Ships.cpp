@@ -43,7 +43,7 @@ void Ships::AdvanceState(i32 difMs)
     i32 NUM_SHIPS = 8;
     i32 FRAMES_PER_SHIP = 40;
     float TWO_PI = 3.1415 * 2;
-    i32 w, h;
+    u32 w, h;
     c.graphics->GetScreenSize(&w, &h);
 
     if (data->totalMs > NUM_SHIPS * ROTATE_TIME)

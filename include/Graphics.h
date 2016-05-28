@@ -32,8 +32,13 @@ enum Layer
 
 enum TextColor
 {
-    Text_Red,
-    Text_Blue,
+    Color_Grey,
+    Color_Green,
+    Color_Red,
+    Color_Yellow,
+    Color_Purple,
+    Color_Orange,
+    Color_Pink,
 };
 
 // an sdl_texture with automatic memory management
@@ -48,7 +53,10 @@ class DrawnText
    public:
     DrawnText(shared_ptr<DrawnObject> d) : d(d) {}
 
-    // void SetPosition(i32 x, i32 y);
+    void SetPosition(i32 x, i32 y);
+    u32 GetHeight();
+    u32 GetWidth();
+
    private:
     shared_ptr<DrawnObject> d;
 };
@@ -114,11 +122,12 @@ class Graphics : public Module
     ~Graphics();
 
     void Render(i32 difMs);
-    void GetScreenSize(i32* w, i32* h);
+    void GetScreenSize(u32* w, u32* h);
+    i32 GetFontHeight();
 
-    // text will keep getting drawn until object is disposed
-    shared_ptr<DrawnText> MakeDrawnText(Layer layer, TextColor color, i32 x, i32 y,
-                                        const char* formatStr, ...);
+    // text will keep getting drawn until object is disposed (wrapPixels = 0 means no wrap)
+    shared_ptr<DrawnText> MakeDrawnText(Layer layer, TextColor color, u32 wrapPixels,
+                                        const char* utf8);
 
     // image will keep getting drawn until object is disposed
     shared_ptr<DrawnImage> MakeDrawnImage(Layer layer, shared_ptr<Image> image);

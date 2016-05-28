@@ -17,6 +17,7 @@ class SDLman;
 class Graphics;
 class Text;
 class Ships;
+class Chat;
 
 class Client
 {
@@ -30,5 +31,6 @@ class Client
     shared_ptr<Logman> log;
     shared_ptr<SDLman> sdl;
     shared_ptr<Graphics> graphics;
+    shared_ptr<Chat> chat;
     shared_ptr<Ships> ships;
 };

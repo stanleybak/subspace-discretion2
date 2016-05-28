@@ -1,6 +1,7 @@
 #include "Graphics.h"
 #include "SDLman.h"
 #include "SDL2/SDL_ttf.h"
+#include "utf8.h"
 #include <map>
 #include <unordered_set>
 
@@ -46,11 +47,14 @@ struct GraphicsData
 
     TTF_Font* font = nullptr;
 
-    i32 windowW = 1, windowH = 1;
+    u32 windowW = 1, windowH = 1;
     SDL_Window* window = nullptr;
     SDL_Renderer* renderer = nullptr;
 
     shared_ptr<ManagedTexture> notFoundTexture = nullptr;
+
+    void LoadIcon();
+    SDL_Surface* LoadSurface(const string* path);
     SDL_Texture* SurfaceToTexture(SDL_Surface* s);
     shared_ptr<ManagedTexture> LoadTexture(const char* filename);
 
@@ -60,15 +64,13 @@ struct GraphicsData
     unordered_set<DrawnImage*> animations;
 };
 
-shared_ptr<ManagedTexture> GraphicsData::LoadTexture(const char* filename)
+// may return null
+SDL_Surface* GraphicsData::LoadSurface(const string* path)
 {
-    string path = graphicsFolder + "/" + filename;
-
-    shared_ptr<ManagedTexture> rv = nullptr;
     SDL_Surface* surface = nullptr;
 
-    if (strchr(filename, '.') != nullptr)
-        surface = IMG_Load(path.c_str());
+    if (strchr(path->c_str(), '.') != nullptr)
+        surface = IMG_Load(path->c_str());
     else
     {
         // try a bunch of image extensions
@@ -77,17 +79,24 @@ shared_ptr<ManagedTexture> GraphicsData::LoadTexture(const char* filename)
 
         for (const char* ext : exts)
         {
-            string tryPath = path + ext;
+            string tryPath = *path + ext;
 
             surface = IMG_Load(tryPath.c_str());
 
             if (surface)
                 break;
         }
-
-        if (!surface)
-            path += ".png";  // for the error message
     }
+
+    return surface;
+}
+
+shared_ptr<ManagedTexture> GraphicsData::LoadTexture(const char* filename)
+{
+    string path = graphicsFolder + "/" + filename;
+
+    SDL_Surface* surface = LoadSurface(&path);
+    shared_ptr<ManagedTexture> rv = nullptr;
 
     if (surface)
     {
@@ -101,6 +110,9 @@ shared_ptr<ManagedTexture> GraphicsData::LoadTexture(const char* filename)
     }
     else
     {
+        if (strchr(path.c_str(), '.') == nullptr)
+            path += ".png";  // for the error message
+
         c.log->LogError("Error loading image at path '%s'", path.c_str());
         rv = notFoundTexture;
     }
@@ -164,6 +176,22 @@ DrawnObject::~DrawnObject()
 
     if (!found)
         gd->c.log->LogError("Drawable::~Drawable Unregistering drawable not found in draw list.");
+}
+
+void DrawnText::SetPosition(i32 x, i32 y)
+{
+    d->dest.x = x;
+    d->dest.y = y;
+}
+
+u32 DrawnText::GetHeight()
+{
+    return d->dest.h;
+}
+
+u32 DrawnText::GetWidth()
+{
+    return d->dest.w;
 }
 
 DrawnImage::DrawnImage(shared_ptr<GraphicsData> gd, Layer layer, u32 animMs, u32 animFrameOffset,
@@ -257,6 +285,8 @@ Animation::Animation(shared_ptr<Image> i, u32 animMs)
 
 Graphics::Graphics(Client& c) : Module(c), data(make_shared<GraphicsData>(c))
 {
+    data->graphicsFolder = c.cfg->GetString("Graphics", "folder", "resources");
+
     data->windowW = c.cfg->GetInt("video", "width", 800, [](i32 val)
                                   {
                                       return val >= 100 && val <= 10000;
@@ -275,6 +305,8 @@ Graphics::Graphics(Client& c) : Module(c), data(make_shared<GraphicsData>(c))
     if (data->window == nullptr)
         c.log->FatalError("Failed to create window: %s", SDL_GetError());
 
+    data->LoadIcon();
+
     data->renderer =
         SDL_CreateRenderer(data->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
@@ -287,9 +319,8 @@ Graphics::Graphics(Client& c) : Module(c), data(make_shared<GraphicsData>(c))
     // Set color of renderer to black
     SDL_SetRenderDrawColor(data->renderer, 0, 0, 0, 255);
 
-    data->graphicsFolder = c.cfg->GetString("Graphics", "folder", "resources");
-
-    const char* notFoundFilename = c.cfg->GetString("graphics", "not_found_image", "NotFound.png");
+    const char* notFoundFilename =
+        c.cfg->GetString("graphics", "not_found_image_name", "not_found");
     data->notFoundTexture = data->LoadTexture(notFoundFilename);
 
     if (data->notFoundTexture == nullptr)
@@ -307,7 +338,7 @@ Graphics::Graphics(Client& c) : Module(c), data(make_shared<GraphicsData>(c))
 
     // load font
     string fontPath =
-        data->graphicsFolder + "/" + c.cfg->GetString("text", "font_file", "SourceHanSans.otf");
+        data->graphicsFolder + "/" + c.cfg->GetString("text", "font_file", "source_han_sans.otf");
 
     i32 size = c.cfg->GetInt("text", "font_size", 12, [](i32 val)
                              {
@@ -323,6 +354,26 @@ Graphics::Graphics(Client& c) : Module(c), data(make_shared<GraphicsData>(c))
     }
     else
         c.log->LogDrivel("Loaded font from '%s'", fontPath.c_str());
+}
+
+void GraphicsData::LoadIcon()
+{
+    // load icon
+    string iconName =
+        graphicsFolder + "/" + c.cfg->GetString("graphics", "icon_image_name", "icon");
+
+    SDL_Surface* icon = LoadSurface(&iconName);
+
+    if (icon)
+    {
+        SDL_SetWindowIcon(window, icon);
+        SDL_FreeSurface(icon);
+        icon = nullptr;
+
+        c.log->LogDrivel("Set window icon to image '%s'", iconName.c_str());
+    }
+    else
+        c.log->LogError("Error loading icon image from '%s'", iconName.c_str());
 }
 
 Graphics::~Graphics()
@@ -366,10 +417,15 @@ void Graphics::Render(i32 difMs)
     SDL_RenderPresent(data->renderer);
 }
 
-void Graphics::GetScreenSize(i32* w, i32* h)
+void Graphics::GetScreenSize(u32* w, u32* h)
 {
     *w = data->windowW;
     *h = data->windowH;
+}
+
+i32 Graphics::GetFontHeight()
+{
+    return TTF_FontHeight(data->font) + 3;  // TTF_FontHeight = 17, TTF_FontLineSkip=22
 }
 
 shared_ptr<DrawnImage> Graphics::MakeDrawnImage(Layer layer, shared_ptr<Image> image)
@@ -395,40 +451,50 @@ void Graphics::MakeSingleDrawnAnimation(Layer layer, i32 x, i32 y, shared_ptr<An
     data->singleAnimations.insert(make_pair(data->nowMs + anim->animMs, rv));
 }
 
-shared_ptr<DrawnText> Graphics::MakeDrawnText(Layer layer, TextColor color, i32 x, i32 y,
-                                              const char* format, ...)
+shared_ptr<DrawnText> Graphics::MakeDrawnText(Layer layer, TextColor color, u32 wrapPixels,
+                                              const char* utf8)
 {
-    char buf[256];
-    va_list args;
-    va_start(args, format);
+    SDL_Color textColor = {64, 64, 64, 255};
 
-    vsnprintf(buf, sizeof(buf), format, args);
+    pair<TextColor, SDL_Color> colors[] = {
+        {Color_Grey, {0xb5, 0xb5, 0xb5, 255}},
+        {Color_Green, {0x73, 0xff, 0x63, 255}},
+        {Color_Red, {0xde, 0x31, 0x08, 255}},
+        {Color_Yellow, {0xff, 0xbd, 0x29, 255}},
+        {Color_Purple, {0xad, 0x6b, 0xf7, 255}},
+        {Color_Orange, {0xef, 0x6b, 0x18, 255}},
+        {Color_Pink, {0xff, 0xb5, 0xb5, 255}},
+    };
 
-    va_end(args);
-
-    SDL_Color textColor = {0, 0, 0, 255};
-
-    switch (color)
+    for (auto p : colors)
     {
-        case Text_Red:
-            textColor = {255, 0, 0, 255};
+        if (p.first == color)
+        {
+            textColor = p.second;
             break;
-        case Text_Blue:
-            textColor = {0, 0, 255, 255};
-            break;
-        default:
-            c.log->LogError("Graphics::MakeText unknown color: %i", color);
+        }
     }
 
-    SDL_Color backgroundColor = {0, 0, 0, 255};  // black
-    SDL_Surface* surf = TTF_RenderUTF8_Shaded(data->font, buf, textColor, backgroundColor);
+    SDL_Surface* surf = nullptr;
+
+    if (wrapPixels == 0)
+        surf = TTF_RenderUTF8_Blended(data->font, utf8, textColor);
+    else
+    {
+        surf = TTF_RenderUTF8_Blended_Wrapped(data->font, utf8, textColor, wrapPixels);
+
+        if (surf && surf->w > (i32)wrapPixels)
+            c.log->LogInfo("Encountered TTF_RenderUTF8_Blended_Wrapped bug where wrapping fails.");
+    }
+
+    if (surf == nullptr)
+        c.log->FatalError("Error rendering font: %s", TTF_GetError());
+
     SDL_Texture* tex = data->SurfaceToTexture(surf);
 
     shared_ptr<ManagedTexture> mt = make_shared<ManagedTexture>(tex);
     shared_ptr<DrawnObject> drawn = make_shared<DrawnObject>(data, layer, mt, "text");
 
-    drawn->dest.x = x;
-    drawn->dest.y = y;
     SDL_QueryTexture(tex, NULL, NULL, &drawn->dest.w, &drawn->dest.h);
 
     return make_shared<DrawnText>(drawn);
