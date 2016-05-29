@@ -132,6 +132,10 @@ void SDLmanData::ProcessEvent(SDL_Event* event)
             if (event->key.keysym.sym == SDLK_BACKSPACE)
                 c.chat->TextBackspace();
 
+            if (event->key.keysym.sym == SDLK_RETURN || event->key.keysym.sym == SDLK_KP_ENTER ||
+                event->key.keysym.sym == SDLK_RETURN2)
+                c.chat->TextEnter();
+
             if (event->key.repeat == 0)
             {
                 switch (event->key.keysym.sym)

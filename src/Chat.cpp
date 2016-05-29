@@ -71,6 +71,12 @@ void Chat::TextBackspace()
     data->UpdateTypingText();
 }
 
+void Chat::TextEnter()
+{
+    data->curTextUtf8 = "";
+    data->UpdateTypingText();
+}
+
 void ChatData::UpdateTypingText()
 {
     if (curTextUtf8.length() == 0)
