@@ -4,6 +4,7 @@
 #include "utf8.h"
 #include <map>
 #include <unordered_set>
+#include <vector>
 
 class ManagedTexture
 {
@@ -46,6 +47,7 @@ struct GraphicsData
     string graphicsFolder;
 
     TTF_Font* font = nullptr;
+    bool useBlendedFont = false;
 
     u32 windowW = 1, windowH = 1;
     SDL_Window* window = nullptr;
@@ -54,7 +56,9 @@ struct GraphicsData
     shared_ptr<ManagedTexture> notFoundTexture = nullptr;
 
     void LoadIcon();
+    SDL_Surface* RenderWrappedSurface(const char* utf8, SDL_Color textColor, i32 wrapPixels);
     SDL_Surface* LoadSurface(const string* path);
+    SDL_Surface* MakeMemorySurface(i32 w, i32 h);  // won't return nul
     SDL_Texture* SurfaceToTexture(SDL_Surface* s);
     shared_ptr<ManagedTexture> LoadTexture(const char* filename);
 
@@ -63,6 +67,155 @@ struct GraphicsData
     multimap<u32, shared_ptr<DrawnImage>> singleAnimations;  // expirationMs -> DrawnImage
     unordered_set<DrawnImage*> animations;
 };
+
+// won't return null
+SDL_Surface* GraphicsData::MakeMemorySurface(i32 w, i32 h)
+{
+    Uint32 rmask, gmask, bmask, amask;
+
+/* SDL interprets each pixel as a 32-bit number, so our masks must depend
+   on the endianness (byte order) of the machine */
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+    rmask = 0xff000000;
+    gmask = 0x00ff0000;
+    bmask = 0x0000ff00;
+    amask = 0x000000ff;
+#else
+    rmask = 0x000000ff;
+    gmask = 0x0000ff00;
+    bmask = 0x00ff0000;
+    amask = 0xff000000;
+#endif
+
+    SDL_Surface* rv = SDL_CreateRGBSurface(SDL_SWSURFACE, w, h, 32, rmask, gmask, bmask, amask);
+
+    if (rv == NULL)
+        c.log->FatalError(" SDL_CreateRGBSurface() failed: %s", SDL_GetError());
+
+    return rv;
+}
+
+// returns a valid SDL_Surface
+SDL_Surface* GraphicsData::RenderWrappedSurface(const char* utf8_cstr, SDL_Color textColor,
+                                                i32 wrapPixels)
+{
+    string utf8 = utf8_cstr;
+
+    vector<string> lines;
+    string curLine;
+
+    auto it = utf8.begin();
+    auto end = utf8::find_invalid(utf8.begin(), utf8.end());
+
+    while (it != end)
+    {
+        u32 codePoint = utf8::next(it, end);
+
+        // add a single codePoint to curText, if there's space
+        unsigned char u[5] = {0, 0, 0, 0, 0};
+        unsigned char* end = utf8::append(codePoint, u);
+        u32 len = end - u;
+
+        for (u32 i = 0; i < len; ++i)
+            curLine += u[i];
+
+        // check if length of curline goes over wrappixels
+        i32 w = 0, h = 0;
+
+        if (TTF_SizeUTF8(font, curLine.c_str(), &w, &h))
+            c.log->FatalError("TTF_SizeUTF8 Failed: '%s'", TTF_GetError());
+
+        if (w > wrapPixels)
+        {
+            // pop last characters off until a space is encountered, and start a new line
+            string::iterator spacePos = curLine.end();
+
+            while (spacePos != curLine.begin())
+            {
+                u32 codePoint = utf8::prior(spacePos, curLine.begin());
+
+                if (codePoint == (u32)' ')
+                    break;
+            }
+
+            if (spacePos == curLine.begin())
+            {
+                // no space was found in curLine, force a break
+                for (u32 i = 0; i < len; ++i)
+                    curLine.pop_back();
+
+                lines.push_back(curLine);
+                curLine = "";
+
+                for (u32 i = 0; i < len; ++i)
+                    curLine += u[i];
+            }
+            else
+            {
+                // a space was found, copy everything after the space to the next line
+                string nextLine = string(spacePos + 1, curLine.end());
+                curLine = string(curLine.begin(), spacePos);
+
+                lines.push_back(curLine);
+                curLine = nextLine;
+            }
+        }
+    }
+
+    if (curLine.length() > 0)
+        lines.push_back(curLine);
+
+    // at this point, lines contains the string to render for each line
+    i32 lineHeight = c.graphics->GetFontHeight();
+
+    i32 height = lineHeight * lines.size();
+    i32 width = 0;
+
+    if (lines.size() > 0)
+        width = wrapPixels;
+    else
+    {
+        i32 w = 0, h = 0;
+
+        if (TTF_SizeUTF8(font, curLine.c_str(), &w, &h))
+            c.log->FatalError("TTF_SizeUTF8 Failed: '%s'", TTF_GetError());
+
+        width = w;
+    }
+
+    // make surface
+    SDL_Surface* finalSurf = MakeMemorySurface(width, height);
+
+    for (u32 lineNum = 0; lineNum < lines.size(); ++lineNum)
+    {
+        const string& line = lines[lineNum];
+        i32 w = 0, h = 0;
+
+        if (TTF_SizeUTF8(font, line.c_str(), &w, &h))
+            c.log->FatalError("TTF_SizeUTF8 Failed: '%s'", TTF_GetError());
+
+        SDL_Surface* lineSurf = nullptr;
+
+        if (useBlendedFont)
+            lineSurf = TTF_RenderUTF8_Blended(font, line.c_str(), textColor);
+        else
+            lineSurf = TTF_RenderUTF8_Solid(font, line.c_str(), textColor);
+
+        if (lineSurf == nullptr)
+            c.log->FatalError("TTF_RenderUTF8 Failed: '%s'", TTF_GetError());
+
+        // copy lineSurf to surf
+        int height = lineNum * lineHeight;
+        SDL_Rect dest = {0, height, lineSurf->w, lineSurf->h};
+
+        if (SDL_BlitSurface(lineSurf, nullptr, finalSurf, &dest))
+            c.log->FatalError("SDL_BlitSurface Failed: '%s'", SDL_GetError());
+
+        SDL_FreeSurface(lineSurf);
+    }
+
+    return finalSurf;
+}
 
 // may return null
 SDL_Surface* GraphicsData::LoadSurface(const string* path)
@@ -359,6 +512,8 @@ Graphics::Graphics(Client& c) : Module(c), data(make_shared<GraphicsData>(c))
     }
     else
         c.log->LogDrivel("Loaded font from '%s'", fontPath.c_str());
+
+    data->useBlendedFont = c.cfg->GetInt("text", "use_blended_font", 1) != 0;
 }
 
 void GraphicsData::LoadIcon()
@@ -494,10 +649,15 @@ shared_ptr<DrawnText> Graphics::MakeDrawnText(Layer layer, TextColor color, u32 
     SDL_Surface* surf = nullptr;
 
     if (wrapPixels == 0)
-        surf = TTF_RenderUTF8_Blended(data->font, utf8, textColor);
+    {
+        if (data->useBlendedFont)
+            surf = TTF_RenderUTF8_Blended(data->font, utf8, textColor);
+        else
+            surf = TTF_RenderUTF8_Solid(data->font, utf8, textColor);
+    }
     else
     {
-        surf = TTF_RenderUTF8_Blended_Wrapped(data->font, utf8, textColor, wrapPixels);
+        surf = data->RenderWrappedSurface(utf8, textColor, wrapPixels);
 
         if (surf && surf->w > (i32)wrapPixels)
             c.log->LogInfo("Encountered TTF_RenderUTF8_Blended_Wrapped bug where wrapping fails.");

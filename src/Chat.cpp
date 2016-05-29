@@ -86,12 +86,6 @@ void ChatData::UpdateTypingText()
 
         u32 h = curTextLineImage->GetHeight();
 
-        // round h to the nearest multiple of fontHeight
-        if ((i32)(h % fontHeight) >= (fontHeight / 2))
-            h += fontHeight - (h % fontHeight);
-        else
-            h -= h % fontHeight;
-
         curTextLineImage->SetPosition(0, screenH - h);
     }
 }
