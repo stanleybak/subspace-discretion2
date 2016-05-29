@@ -44,7 +44,6 @@ static void PrintStackTrace()
     char *funcname = (char *)malloc(funcnamesize);
 
     // iterate over the returned symbol lines.
-    bool skippedFirst = false;
     for (int i = 0; i < addrlen; i++)
     {
         char *begin_name = 0, *begin_offset = 0, *end_offset = 0;
@@ -70,49 +69,44 @@ static void PrintStackTrace()
 
         if (begin_name && begin_offset && end_offset && begin_name < begin_offset)
         {
-            if (!skippedFirst)
-                skippedFirst = true;
+            *begin_name++ = '\0';
+            *begin_offset++ = '\0';
+            *end_offset = '\0';
+
+            // mangled name is now in [begin_name, begin_offset) and caller
+            // offset in [begin_offset, end_offset). now apply
+            // __cxa_demangle():
+
+            int status;
+            char *ret = abi::__cxa_demangle(begin_name, funcname, &funcnamesize, &status);
+            if (status == 0)
+            {
+                funcname = ret;  // use possibly realloc()-ed string
+                fprintf(out, "%s+%s in ", funcname, begin_offset);
+            }
             else
             {
-                *begin_name++ = '\0';
-                *begin_offset++ = '\0';
-                *end_offset = '\0';
-
-                // mangled name is now in [begin_name, begin_offset) and caller
-                // offset in [begin_offset, end_offset). now apply
-                // __cxa_demangle():
-
-                int status;
-                char *ret = abi::__cxa_demangle(begin_name, funcname, &funcnamesize, &status);
-                if (status == 0)
-                {
-                    funcname = ret;  // use possibly realloc()-ed string
-                    fprintf(out, "%s+%s in ", funcname, begin_offset);
-                }
-                else
-                {
-                    // demangling failed.
-                    fprintf(out, "%s()+%s in ", begin_name, begin_offset);
-                }
-
-                fflush(out);
-
-                ////////////////////////
-                char **messages = symbollist;
-                void **trace = addrlist;
-                /* find first occurence of '(' or ' ' in message[i] and assume
-                 * everything before that is the file name. (Don't go beyond 0 though
-                 * (string terminator)*/
-                i32 p = 0;
-                while (messages[i][p] != '(' && messages[i][p] != ' ' && messages[i][p] != 0)
-                    ++p;
-
-                char syscom[256];
-                sprintf(syscom, "addr2line %p -s -e %.*s", trace[i], p, messages[i]);
-                // last parameter is the file name of the symbol
-                system(syscom);
-                /////////////////////////////
+                // demangling failed.
+                fprintf(out, "%s()+%s in ", begin_name, begin_offset);
             }
+
+            fflush(out);
+
+            ////////////////////////
+            char **messages = symbollist;
+            void **trace = addrlist;
+            /* find first occurence of '(' or ' ' in message[i] and assume
+             * everything before that is the file name. (Don't go beyond 0 though
+             * (string terminator)*/
+            i32 p = 0;
+            while (messages[i][p] != '(' && messages[i][p] != ' ' && messages[i][p] != 0)
+                ++p;
+
+            char syscom[256];
+            sprintf(syscom, "addr2line %p -s -e %.*s", trace[i], p, messages[i]);
+            // last parameter is the file name of the symbol
+            system(syscom);
+            /////////////////////////////
         }
         else
         {

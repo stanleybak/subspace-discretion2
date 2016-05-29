@@ -4,7 +4,6 @@
 #include "utf8.h"
 #include <map>
 #include <unordered_set>
-#include <vector>
 
 class ManagedTexture
 {
@@ -56,15 +55,18 @@ struct GraphicsData
     shared_ptr<ManagedTexture> notFoundTexture = nullptr;
 
     void LoadIcon();
-    SDL_Surface* RenderWrappedSurface(const char* playerName, const char* utf8, SDL_Color textColor,
-                                      i32 wrapPixels);
+    void RenderWrappedSurface(vector<SDL_Surface*>& store, const char* playerName, const char* utf8,
+                              SDL_Color textColor, i32 wrapPixels);
+    SDL_Surface* RenderName(const char* playerNameUtf8, SDL_Color textColor, i32 maxLen);
     SDL_Surface* LoadSurface(const string* path);
     SDL_Surface* MakeMemorySurface(i32 w, i32 h);  // won't return nul
     SDL_Texture* SurfaceToTexture(SDL_Surface* s);
     shared_ptr<ManagedTexture> LoadTexture(const char* filename);
-    shared_ptr<DrawnText> MakeDrawnText(shared_ptr<GraphicsData> gd, Layer layer, TextColor color,
-                                        u32 wrapPixels, const char* playerNameUtf8,
-                                        const char* utf8);
+    void MakeDrawnText(vector<shared_ptr<DrawnText>>& store, shared_ptr<GraphicsData> gd,
+                       Layer layer, TextColor color, u32 wrapPixels, const char* playerNameUtf8,
+                       const char* utf8);
+    void MakeWrappedTextSurfaces(vector<SDL_Surface*>& surfStore, vector<string>& lines,
+                                 SDL_Surface* nameSurface, SDL_Color textColor, i32 wrapPixels);
 
     u32 nowMs = 0;  // for tracking single animation expiration time
     multimap<Layer, DrawnObject*> drawnObjs;
@@ -72,9 +74,9 @@ struct GraphicsData
     unordered_set<DrawnImage*> animations;
 };
 
-shared_ptr<DrawnText> GraphicsData::MakeDrawnText(shared_ptr<GraphicsData> data, Layer layer,
-                                                  TextColor color, u32 wrapPixels,
-                                                  const char* playerNameUtf8, const char* utf8)
+void GraphicsData::MakeDrawnText(vector<shared_ptr<DrawnText>>& store,
+                                 shared_ptr<GraphicsData> data, Layer layer, TextColor color,
+                                 u32 wrapPixels, const char* playerNameUtf8, const char* utf8)
 {
     SDL_Color textColor = {64, 64, 64, 255};
 
@@ -97,10 +99,12 @@ shared_ptr<DrawnText> GraphicsData::MakeDrawnText(shared_ptr<GraphicsData> data,
         }
     }
 
-    SDL_Surface* surf = nullptr;
+    vector<SDL_Surface*> surfStore;
 
     if (wrapPixels == 0)
     {
+        SDL_Surface* surf = nullptr;
+
         if (playerNameUtf8 != nullptr)
             c.log->LogError("wrapPixels == 0 with non-null playerName not supported.");
 
@@ -108,23 +112,26 @@ shared_ptr<DrawnText> GraphicsData::MakeDrawnText(shared_ptr<GraphicsData> data,
             surf = TTF_RenderUTF8_Blended(font, utf8, textColor);
         else
             surf = TTF_RenderUTF8_Solid(font, utf8, textColor);
+
+        if (surf == nullptr)
+            c.log->FatalError("Error rendering font: %s", TTF_GetError());
+
+        surfStore.push_back(surf);
     }
     else
+        RenderWrappedSurface(surfStore, playerNameUtf8, utf8, textColor, wrapPixels);
+
+    for (SDL_Surface* surf : surfStore)
     {
-        surf = RenderWrappedSurface(playerNameUtf8, utf8, textColor, wrapPixels);
+        SDL_Texture* tex = SurfaceToTexture(surf);
+
+        shared_ptr<ManagedTexture> mt = make_shared<ManagedTexture>(tex);
+        shared_ptr<DrawnObject> drawn = make_shared<DrawnObject>(data, layer, mt, "text");
+
+        SDL_QueryTexture(tex, NULL, NULL, &drawn->dest.w, &drawn->dest.h);
+
+        store.push_back(make_shared<DrawnText>(drawn));
     }
-
-    if (surf == nullptr)
-        c.log->FatalError("Error rendering font: %s", TTF_GetError());
-
-    SDL_Texture* tex = SurfaceToTexture(surf);
-
-    shared_ptr<ManagedTexture> mt = make_shared<ManagedTexture>(tex);
-    shared_ptr<DrawnObject> drawn = make_shared<DrawnObject>(data, layer, mt, "text");
-
-    SDL_QueryTexture(tex, NULL, NULL, &drawn->dest.w, &drawn->dest.h);
-
-    return make_shared<DrawnText>(drawn);
 }
 
 // won't return null
@@ -155,8 +162,7 @@ SDL_Surface* GraphicsData::MakeMemorySurface(i32 w, i32 h)
 }
 
 // returns a valid SDL_Surface
-SDL_Surface* GraphicsData::RenderWrappedSurface(const char* playerNameUtf8, const char* textUtf8,
-                                                SDL_Color textColor, i32 wrapPixels)
+SDL_Surface* GraphicsData::RenderName(const char* playerNameUtf8, SDL_Color textColor, i32 maxLen)
 {
     SDL_Surface* nameSurface = nullptr;
 
@@ -167,7 +173,6 @@ SDL_Surface* GraphicsData::RenderWrappedSurface(const char* playerNameUtf8, cons
 
         string renderedPlayerName;
         string originalPlayerName = playerNameUtf8;
-        i32 maxNameLen = wrapPixels / 4;
 
         auto itName = originalPlayerName.begin();
         auto endName = utf8::find_invalid(originalPlayerName.begin(), originalPlayerName.end());
@@ -190,7 +195,7 @@ SDL_Surface* GraphicsData::RenderWrappedSurface(const char* playerNameUtf8, cons
             if (TTF_SizeUTF8(font, renderedPlayerName.c_str(), &w, &h))
                 c.log->FatalError("TTF_SizeUTF8 Failed: '%s'", TTF_GetError());
 
-            if (w > maxNameLen)
+            if (w > maxLen)
             {
                 // pop last character to go back under the limit
                 for (u32 i = 0; i < len; ++i)
@@ -215,6 +220,15 @@ SDL_Surface* GraphicsData::RenderWrappedSurface(const char* playerNameUtf8, cons
         // switch back to normal font
         TTF_SetFontStyle(font, TTF_STYLE_NORMAL);
     }
+
+    return nameSurface;
+}
+
+// returns a valid SDL_Surface
+void GraphicsData::RenderWrappedSurface(vector<SDL_Surface*>& surfStore, const char* playerNameUtf8,
+                                        const char* textUtf8, SDL_Color textColor, i32 wrapPixels)
+{
+    SDL_Surface* nameSurface = RenderName(playerNameUtf8, textColor, wrapPixels / 4);
 
     string utf8 = textUtf8;
 
@@ -242,7 +256,7 @@ SDL_Surface* GraphicsData::RenderWrappedSurface(const char* playerNameUtf8, cons
         if (TTF_SizeUTF8(font, curLine.c_str(), &w, &h))
             c.log->FatalError("TTF_SizeUTF8 Failed: '%s'", TTF_GetError());
 
-        // on the first list, include extra width for the name
+        // on the first line, include extra width for the name
         i32 extraWidth = (lines.size() == 0 && nameSurface != nullptr) ? nameSurface->w : 0;
 
         if (w + extraWidth > wrapPixels)
@@ -286,66 +300,74 @@ SDL_Surface* GraphicsData::RenderWrappedSurface(const char* playerNameUtf8, cons
         lines.push_back(curLine);
 
     // at this point, lines contains the string to render for each line
+    MakeWrappedTextSurfaces(surfStore, lines, nameSurface, textColor, wrapPixels);
+}
+
+void GraphicsData::MakeWrappedTextSurfaces(vector<SDL_Surface*>& surfStore, vector<string>& lines,
+                                           SDL_Surface* nameSurface, SDL_Color textColor,
+                                           i32 wrapPixels)
+{
+    if (lines.size() == 0)
+        lines.push_back(" ");
+
     i32 lineHeight = c.graphics->GetFontHeight();
 
-    i32 height = lineHeight * lines.size();
-    i32 width = 0;
+    SDL_Surface* lineSurface = nullptr;
 
-    if (lines.size() > 0)
-        width = wrapPixels;
-    else
+    if (nameSurface != nullptr)
     {
-        i32 w = 0, h = 0;
+        // render image with name> line0_text
+        // copy over the player name image
+        i32 textW, textH;
 
-        if (TTF_SizeUTF8(font, curLine.c_str(), &w, &h))
+        if (TTF_SizeUTF8(font, lines[0].c_str(), &textW, &textH))
             c.log->FatalError("TTF_SizeUTF8 Failed: '%s'", TTF_GetError());
 
-        width = w;
+        i32 firstLineWidth = nameSurface->w + textW;
+
+        lineSurface = MakeMemorySurface(firstLineWidth, lineHeight);
+
+        SDL_Rect dest = {0, 0, nameSurface->w, nameSurface->h};
+
+        if (SDL_BlitSurface(nameSurface, nullptr, lineSurface, &dest))
+            c.log->FatalError("SDL_BlitSurface Failed: '%s'", SDL_GetError());
     }
 
-    // make surface
-    SDL_Surface* finalSurf = MakeMemorySurface(width, height);
-
-    for (u32 lineNum = 0; lineNum < lines.size(); ++lineNum)
+    for (u32 lineIndex = 0; lineIndex < lines.size(); ++lineIndex)
     {
-        i32 xOffset = 0;
-        if (lineNum == 0 && nameSurface != nullptr)
-        {
-            // copy over the player name image
-            xOffset = nameSurface->w;
+        const string& line = lines[lineIndex];
 
-            SDL_Rect dest = {0, 0, nameSurface->w, nameSurface->h};
-
-            if (SDL_BlitSurface(nameSurface, nullptr, finalSurf, &dest))
-                c.log->FatalError("SDL_BlitSurface Failed: '%s'", SDL_GetError());
-
-            SDL_FreeSurface(nameSurface);
-        }
-
-        const string& line = lines[lineNum];
-
-        SDL_Surface* lineSurf = nullptr;
+        SDL_Surface* textSurface = nullptr;
 
         if (useBlendedFont)
-            lineSurf = TTF_RenderUTF8_Blended(font, line.c_str(), textColor);
+            textSurface = TTF_RenderUTF8_Blended(font, line.c_str(), textColor);
         else
-            lineSurf = TTF_RenderUTF8_Solid(font, line.c_str(), textColor);
+            textSurface = TTF_RenderUTF8_Solid(font, line.c_str(), textColor);
 
-        if (lineSurf == nullptr)
+        if (textSurface == nullptr)
             c.log->FatalError("TTF_RenderUTF8 Failed: '%s'", TTF_GetError());
 
-        // copy lineSurf to surf
-        int height = lineNum * lineHeight;
+        if (lineSurface == nullptr)
+        {
+            // no existing line surface (not first line)
+            surfStore.push_back(textSurface);
+        }
+        else
+        {
+            // first line, draw text surface to line surface
+            i32 lineXOffset = nameSurface->w;
+            SDL_Rect dest = {lineXOffset, 0, textSurface->w, textSurface->h};
 
-        SDL_Rect dest = {xOffset, height, lineSurf->w, lineSurf->h};
+            if (SDL_BlitSurface(textSurface, nullptr, lineSurface, &dest))
+                c.log->FatalError("SDL_BlitSurface Failed: '%s'", SDL_GetError());
 
-        if (SDL_BlitSurface(lineSurf, nullptr, finalSurf, &dest))
-            c.log->FatalError("SDL_BlitSurface Failed: '%s'", SDL_GetError());
-
-        SDL_FreeSurface(lineSurf);
+            surfStore.push_back(lineSurface);
+            lineSurface = nullptr;
+        }
     }
 
-    return finalSurf;
+    if (nameSurface != nullptr)
+        SDL_FreeSurface(nameSurface);
 }
 
 // may return null
@@ -755,13 +777,15 @@ void Graphics::MakeSingleDrawnAnimation(Layer layer, i32 x, i32 y, shared_ptr<An
 
 shared_ptr<DrawnText> Graphics::MakeDrawnText(Layer layer, TextColor color, const char* utf8)
 {
-    return data->MakeDrawnText(data, layer, color, 0, nullptr, utf8);
+    vector<shared_ptr<DrawnText>> lines;
+    data->MakeDrawnText(lines, data, layer, color, 0, nullptr, utf8);
+    return lines[0];
 }
 
-shared_ptr<DrawnText> Graphics::MakeDrawnChat(Layer layer, TextColor color, i32 wrapPixels,
-                                              const char* playerNameUtf8, const char* utf8)
+void Graphics::MakeDrawnChat(vector<shared_ptr<DrawnText>>& store, Layer layer, TextColor color,
+                             i32 wrapPixels, const char* playerNameUtf8, const char* utf8)
 {
-    return data->MakeDrawnText(data, layer, color, wrapPixels, playerNameUtf8, utf8);
+    data->MakeDrawnText(store, data, layer, color, wrapPixels, playerNameUtf8, utf8);
 }
 
 shared_ptr<Image> Graphics::LoadImage(const char* filename)

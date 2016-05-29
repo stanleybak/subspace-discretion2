@@ -12,7 +12,8 @@ class ChatData
     u32 maxTypingBytes = 200;
     u32 screenW = 0, screenH = 0;
     i32 fontHeight = 0;
-    shared_ptr<DrawnText> curTextLineImage = nullptr;
+
+    vector<shared_ptr<DrawnText>> curTextLines;
 
     void UpdateTypingText();
 };
@@ -78,14 +79,22 @@ void Chat::TextEnter()
 void ChatData::UpdateTypingText()
 {
     if (curTextUtf8.length() == 0)
-        curTextLineImage = nullptr;
+    {
+        curTextLines.clear();
+    }
     else
     {
-        curTextLineImage = c.graphics->MakeDrawnChat(Layer_Chat, Color_Grey, screenW, "Player",
-                                                     curTextUtf8.c_str());
+        curTextLines.clear();
+        c.graphics->MakeDrawnChat(curTextLines, Layer_Chat, Color_Grey, screenW, "Player",
+                                  curTextUtf8.c_str());
 
-        u32 h = curTextLineImage->GetHeight();
+        i32 offsetY = screenH;
+        for (i32 line = (i32)curTextLines.size() - 1; line >= 0; --line)
+        {
+            offsetY -= fontHeight;
+            shared_ptr<DrawnText> ptr = curTextLines[line];
 
-        curTextLineImage->SetPosition(0, screenH - h);
+            ptr->SetPosition(0, offsetY);
+        }
     }
 }
