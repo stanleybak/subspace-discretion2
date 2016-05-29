@@ -45,7 +45,7 @@ void Logman::LogHeader()
     // Wednesday, March 19, 2014 01:06:18 PM
     strftime(buf, 80, "%A, %B %d, %Y %I:%M:%S %p", &timeinfo);
 
-    LogInfo("Log File Opened on %s", buf);
+    LogDrivel("Log File Opened on %s", buf);
 }
 
 void Logman::LogError(const char* format, ...)

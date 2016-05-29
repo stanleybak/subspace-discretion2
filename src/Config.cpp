@@ -243,7 +243,7 @@ const char* Config::GetString(const char* section, const char* name, const char*
     const char* val = GetStringNoDefault(section, name);
 
     if (val == nullptr && c.log)
-        c.log->LogDrivel("String setting %s::%s not found; defaulting to '%s'", section, name, def);
+        c.log->LogInfo("String setting %s::%s not found; defaulting to '%s'", section, name, def);
     else
         rv = val;
 
@@ -271,7 +271,7 @@ i32 Config::GetInt(const char* section, const char* name, i32 def)
     const char* val = GetStringNoDefault(section, name);
 
     if (val == nullptr)
-        c.log->LogDrivel("Double setting %s::%s not found; defaulting to %d", section, name, def);
+        c.log->LogInfo("Int setting %s::%s not found; defaulting to %d", section, name, def);
     else
     {
         char* end;
@@ -330,7 +330,7 @@ double Config::GetDouble(const char* section, const char* name, double def)
     const char* val = GetStringNoDefault(section, name);
 
     if (val == nullptr)
-        c.log->LogDrivel("Double setting %s::%s not found; defaulting to %f", section, name, def);
+        c.log->LogInfo("Double setting %s::%s not found; defaulting to %f", section, name, def);
     else
     {
         char* end;
