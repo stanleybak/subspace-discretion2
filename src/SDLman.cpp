@@ -28,7 +28,7 @@ void SDLmanData::UpdateFps(i32 difMs)
     if (fpsMsRemaining <= 0)
     {
         string text = "FPS: " + to_string(fpsFrameCount);
-        fpsText = c.graphics->MakeDrawnText(Layer_Chat, Color_Red, 0, text.c_str());
+        fpsText = c.graphics->MakeDrawnText(Layer_Chat, Color_Red, text.c_str());
         fpsText->SetPosition(150, 20);
 
         fpsMsRemaining = 1000;

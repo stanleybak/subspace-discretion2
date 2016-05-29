@@ -1,6 +1,6 @@
 # Makefile for DiscretionTwo
 # -*- indent-tabs-mode:t; -*-
- 
+
 CC=g++
 LN=g++
 
@@ -37,7 +37,7 @@ endif
 LDFLAGS += -lSDL2 -lSDL2_image -lSDL2_ttf
 
 .PHONY: all clean directories release dllDeps
- 
+
 all: $(RELEASE_DIR) $(RELEASE_DIR)/$(RELEASE_FILE) directories deps
 
 release: $(RELEASE_DIR)/$(RELEASE_ARCHIVE)
@@ -61,7 +61,7 @@ OBJS := $(CPP_FILES:.cpp=.o)
 
 $(RELEASE_DIR):
 	mkdir -p $(RELEASE_DIR)
-	
+
 $(RELEASE_DIR)/resources:
 	cp -rv resources $(RELEASE_DIR)/resources
 
@@ -76,6 +76,4 @@ $(RELEASE_DIR)/$(RELEASE_FILE): $(OBJS)
 # compile and generate dependency info
 %.o: %.cpp
 	$(CC) -MMD -c $(CFLAGS) $< -o $@
-
-
 

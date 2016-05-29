@@ -81,8 +81,8 @@ void ChatData::UpdateTypingText()
         curTextLineImage = nullptr;
     else
     {
-        curTextLineImage =
-            c.graphics->MakeDrawnText(Layer_Chat, Color_Grey, screenW, curTextUtf8.c_str());
+        curTextLineImage = c.graphics->MakeDrawnChat(Layer_Chat, Color_Grey, screenW, "Player",
+                                                     curTextUtf8.c_str());
 
         u32 h = curTextLineImage->GetHeight();
 

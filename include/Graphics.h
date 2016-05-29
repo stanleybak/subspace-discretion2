@@ -127,8 +127,10 @@ class Graphics : public Module
     i32 GetFontHeight();
 
     // text will keep getting drawn until object is disposed (wrapPixels = 0 means no wrap)
-    shared_ptr<DrawnText> MakeDrawnText(Layer layer, TextColor color, u32 wrapPixels,
-                                        const char* utf8);
+    // playerName can be null
+    shared_ptr<DrawnText> MakeDrawnText(Layer layer, TextColor color, const char* utf8);
+    shared_ptr<DrawnText> MakeDrawnChat(Layer layer, TextColor color, i32 wrapPixels,
+                                        const char* playerNameUtf8, const char* utf8);
 
     // image will keep getting drawn until object is disposed
     shared_ptr<DrawnImage> MakeDrawnImage(Layer layer, shared_ptr<Image> image);
