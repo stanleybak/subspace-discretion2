@@ -256,6 +256,11 @@ u32 DrawnImage::GetFrame()
     return lastFrameNum;
 }
 
+const char* DrawnImage::GetName()
+{
+    return image->filename.c_str();
+}
+
 void DrawnImage::SetCenteredScreenPosition(i32 x, i32 y)
 {
     drawnObj->dest.x = x - image->halfFrameHeight;
@@ -378,6 +383,17 @@ void GraphicsData::LoadIcon()
 
 Graphics::~Graphics()
 {
+    // remove all managed animations
+    data->singleAnimations.clear();
+
+    // animations should now be empty
+    for (auto it : data->animations)
+        c.log->LogError("Animation was still in animations list: '%s'", it->GetName());
+
+    // render list should now be empty
+    for (auto it2 : data->drawnObjs)
+        c.log->LogError("render list still contained item: '%s'", it2.second->name);
+
     TTF_CloseFont(data->font);
     TTF_Quit();
 

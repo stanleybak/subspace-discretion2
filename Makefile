@@ -1,4 +1,5 @@
- # Makefile for Discretion2 
+# Makefile for DiscretionTwo
+# -*- indent-tabs-mode:t; -*-
  
 CC=g++
 LN=g++
@@ -7,11 +8,11 @@ CFLAGS = -Iinclude -Wall `sdl2-config --cflags`
 LDFLAGS = `sdl2-config --libs`
 
 # use regular or debug cflags
-CFLAGS += -O3 -std=c++0x
-#CFLAGS += -O0 -ggdb
+#CFLAGS += -O3 -std=c++0x
+CFLAGS += -O0 -g -std=c++0x
 
 RELEASE_DIR=DiscretionRelease
-RELEASE_FILE=Discretion2
+RELEASE_FILE=DiscretionTwo
 
 UNAME := $(shell uname)
 
@@ -19,7 +20,7 @@ ifeq ($(UNAME), Linux)
 #################################
 # Linux specific
 
-LDFLAGS += -s
+#LDFLAGS += -s
 
 else ifeq ($(UNAME),Darwin)
 #################################
@@ -28,22 +29,25 @@ else ifeq ($(UNAME),Darwin)
 else
 #################################
 # Windows specific macros
-RELEASE_FILE=Discretion2.exe
+RELEASE_FILE=DiscretionTwo.exe
 
 endif
 #################################
 
-LDFLAGS += -lSDL2 -lSDL2_image
+LDFLAGS += -lSDL2 -lSDL2_image -lSDL2_ttf
 
-.PHONY: all clean releaseDir directories release dllDeps
+.PHONY: all clean directories release dllDeps
  
-all: releaseDir $(RELEASE_DIR)/$(RELEASE_FILE) directories
-
-releaseDir: $(RELEASE_DIR)
+all: $(RELEASE_DIR) $(RELEASE_DIR)/$(RELEASE_FILE) directories deps
 
 release: $(RELEASE_DIR)/$(RELEASE_ARCHIVE)
 
-directories: releaseDir $(RELEASE_DIR)/graphics
+directories: $(RELEASE_DIR) $(RELEASE_DIR)/resources
+
+deps: $(RELEASE_DIR)/config.ini
+
+$(RELEASE_DIR)/config.ini: config.ini
+	cp -rv config.ini $(RELEASE_DIR)/config.ini
 
 clean:
 	rm -vrf $(RELEASE_DIR)
@@ -58,8 +62,8 @@ OBJS := $(CPP_FILES:.cpp=.o)
 $(RELEASE_DIR):
 	mkdir -p $(RELEASE_DIR)
 	
-$(RELEASE_DIR)/graphics:
-	cp -rv graphics $(RELEASE_DIR)/graphics
+$(RELEASE_DIR)/resources:
+	cp -rv resources $(RELEASE_DIR)/resources
 
 # link
 $(RELEASE_DIR)/$(RELEASE_FILE): $(OBJS)

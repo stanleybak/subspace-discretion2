@@ -98,6 +98,7 @@ class DrawnImage
                u32 animNumFrames, shared_ptr<Image> i);
     ~DrawnImage();
 
+    const char* GetName();
     u32 GetFrame();
     void SetFrame(u32 frameNum);
     void SetCenteredScreenPosition(i32 x, i32 y);
