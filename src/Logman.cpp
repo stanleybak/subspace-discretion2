@@ -111,15 +111,16 @@ void Logman::LogVaList(LogLevel level, const char* format, va_list args)
         {
             fprintf(stderr, "%s ", LOG_PREFIX[level]);
             vfprintf(stderr, format, args_copy);
+            fprintf(stderr, "\n");
         }
         else
         {
             printf("%s ", LOG_PREFIX[level]);
             vprintf(format, args_copy);
+            printf("\n");
         }
 
         va_end(args_copy);
-        printf("\n");
     }
 
     if (level >= logLevelSave && f != nullptr)

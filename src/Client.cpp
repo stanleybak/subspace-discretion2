@@ -5,6 +5,8 @@
 #include "Graphics.h"
 #include "Ships.h"
 #include "Chat.h"
+#include "Timers.h"
+#include "Net.h"
 
 #ifndef WIN32
 #include <signal.h>
@@ -134,11 +136,13 @@ Client::Client()
       log(make_shared<Logman>(*this)),
       sdl(make_shared<SDLman>(*this)),
       graphics(make_shared<Graphics>(*this)),
+      timers(make_shared<Timers>(*this)),
       chat(make_shared<Chat>(*this)),
-      ships(make_shared<Ships>(*this))
+      ships(make_shared<Ships>(*this)),
+      net(make_shared<Net>(*this))
 {
 #ifndef WIN32
-    // this requires being compiled with -g -rdynamic to work
+    // this requires being compiled with -g -rdynamic to get function names to work
     signal(SIGSEGV, SigHandler);
 #endif  // !WIN32
 }

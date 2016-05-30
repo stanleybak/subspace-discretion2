@@ -3,13 +3,14 @@
 #include "Graphics.h"
 #include "Ships.h"
 #include "Chat.h"
+#include "Timers.h"
 
 struct SDLmanData
 {
     SDLmanData(Client& client) : c(client) {}
     Client& c;
-    i32 fpsMsRemaining = 1000;
     i32 fpsFrameCount = 0;
+    shared_ptr<Timer> fpsTimer;
     shared_ptr<DrawnText> fpsText;
     shared_ptr<DrawnText> shipInfoText;
 
@@ -20,70 +21,37 @@ struct SDLmanData
     void AdvanceState(i32 difMs);
     void ProcessEvent(SDL_Event* event);
     void DoIteration(i32 difMs);
-    void UpdateFps(i32 difMs);
-};
+    void PostInit();
+    void PreDestroy();
 
-void SDLmanData::UpdateFps(i32 difMs)
-{
-    ++fpsFrameCount;
-    fpsMsRemaining -= difMs;
-
-    if (fpsMsRemaining <= 0)
+    std::function<void()> updateFpsImageFunc = [this]()
     {
         string text = "FPS: " + to_string(fpsFrameCount);
         fpsText = c.graphics->MakeDrawnText(Layer_Chat, Color_Red, text.c_str());
         fpsText->SetPosition(100, 20);
 
-        fpsMsRemaining = 1000;
         fpsFrameCount = 0;
-    }
+    };
+
+    std::function<void(const char*)> quitFunc = [this](const char* textUtf8)
+    {
+        if (string("?quit") == textUtf8)
+            shouldExit = true;
+        else
+            c.chat->InternalMessage("Expected plain '?quit' command.");
+    };
+};
+
+void SDLmanData::PreDestroy()
+{
+    // explicitly free resources here (since this module gets destroyed after graphics
+    fpsTimer = nullptr;
+    fpsText = nullptr;
+    shipInfoText = nullptr;
 }
 
-SDLman::SDLman(Client& c) : Module(c), data(make_shared<SDLmanData>(c))
+void SDLmanData::PostInit()
 {
-    if (SDL_Init(SDL_INIT_EVERYTHING) == -1)
-        c.log->FatalError("Failed to initialize SDL: %s", SDL_GetError());
-
-    c.log->LogDrivel("SDL Initialized Correctly");
-}
-
-SDLman::~SDLman()
-{
-    SDL_Quit();
-}
-
-void SDLman::Exit()
-{
-    data->shouldExit = true;
-}
-
-void SDLmanData::DoIteration(i32 difMs)
-{
-    SDL_Event event;
-
-    while (SDL_PollEvent(&event))
-        ProcessEvent(&event);
-
-    AdvanceState(difMs);
-
-    UpdateFps(difMs);
-
-    c.graphics->Render(difMs);
-}
-
-void SDLman::MainLoop()
-{
-    i32 targetFps = c.cfg->GetInt("video", "target_fps", 60, [](i32 val)
-                                  {
-                                      return val > 0;
-                                  });
-
-    u32 msPerIteration = round(1000.0 / targetFps);
-    u32 lastIterationMs = SDL_GetTicks();
-    u32 nowMs = 0, difMs = 0;
-
-    SDL_StartTextInput();
-
     u32 w = 0, h = 0;
     c.graphics->GetScreenSize(&w, &h);
 
@@ -91,36 +59,14 @@ void SDLman::MainLoop()
     SDL_SetTextInputRect(&rect);
 
     // load ship info text here
-    data->shipInfoText = c.graphics->MakeDrawnText(
-        Layer_Gauges, Color_Blue, "Q - Quit   1-8 - Change Ship   S - Spectator Mode");
-    data->shipInfoText->SetPosition(w / 2 - data->shipInfoText->GetWidth() / 2, 10);
-    data->shipInfoText->SetVisible(false);
+    shipInfoText = c.graphics->MakeDrawnText(Layer_Gauges, Color_Blue,
+                                             "Q - Quit   1-8 - Change Ship   S - Spectator Mode");
+    shipInfoText->SetPosition(w / 2 - shipInfoText->GetWidth() / 2, 10);
+    shipInfoText->SetVisible(false);
 
-    while (!data->shouldExit)
-    {
-        do
-        {
-            nowMs = SDL_GetTicks();
-            difMs = nowMs - lastIterationMs;
+    fpsTimer = c.timers->PeriodicTimer("fps_timer", 1000, updateFpsImageFunc);
 
-            if (difMs < msPerIteration)
-                SDL_Delay(1);
-        } while (difMs < msPerIteration);
-
-        difMs = nowMs - lastIterationMs;
-        data->DoIteration(difMs);
-
-        lastIterationMs = nowMs;
-    }
-
-    SDL_StopTextInput();
-
-    // explicitly free images here (since this module is destroyed after graphics
-    if (data->fpsText)
-    {
-        data->fpsText = nullptr;
-        data->shipInfoText = nullptr;
-    }
+    c.chat->AddInternalCommand("quit", quitFunc);
 }
 
 void SDLmanData::ProcessEvent(SDL_Event* event)
@@ -207,6 +153,7 @@ void SDLmanData::ProcessEvent(SDL_Event* event)
 void SDLmanData::AdvanceState(i32 difMs)
 {
     c.ships->AdvanceState(difMs);
+    c.timers->AdvanceTime(difMs);
 }
 
 void SDLmanData::EscapeToggled()
@@ -220,4 +167,73 @@ void SDLmanData::EscapeToggled()
         shipInfoText->SetVisible(true);
     else
         shipInfoText->SetVisible(false);
+}
+
+SDLman::SDLman(Client& c) : Module(c), data(make_shared<SDLmanData>(c))
+{
+    if (SDL_Init(SDL_INIT_EVERYTHING) == -1)
+        c.log->FatalError("Failed to initialize SDL: %s", SDL_GetError());
+
+    c.log->LogDrivel("SDL Initialized Correctly");
+}
+
+SDLman::~SDLman()
+{
+    SDL_Quit();
+}
+
+void SDLman::Exit()
+{
+    data->shouldExit = true;
+}
+
+void SDLmanData::DoIteration(i32 difMs)
+{
+    ++fpsFrameCount;
+
+    SDL_Event event;
+
+    while (SDL_PollEvent(&event))
+        ProcessEvent(&event);
+
+    AdvanceState(difMs);
+
+    c.graphics->Render(difMs);
+}
+
+void SDLman::MainLoop()
+{
+    data->PostInit();
+
+    i32 targetFps = c.cfg->GetInt("video", "target_fps", 60, [](i32 val)
+                                  {
+                                      return val > 0;
+                                  });
+
+    u32 msPerIteration = round(1000.0 / targetFps);
+    u32 lastIterationMs = SDL_GetTicks();
+    u32 nowMs = 0, difMs = 0;
+
+    SDL_StartTextInput();
+
+    while (!data->shouldExit)
+    {
+        do
+        {
+            nowMs = SDL_GetTicks();
+            difMs = nowMs - lastIterationMs;
+
+            if (difMs < msPerIteration)
+                SDL_Delay(1);
+        } while (difMs < msPerIteration);
+
+        difMs = nowMs - lastIterationMs;
+        data->DoIteration(difMs);
+
+        lastIterationMs = nowMs;
+    }
+
+    SDL_StopTextInput();
+
+    data->PreDestroy();
 }

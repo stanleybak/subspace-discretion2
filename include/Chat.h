@@ -36,6 +36,11 @@ class Chat : Module
 
     void ChatMessage(ChatType type, const char* playerNameUtf8, const char* textUtf8);
 
+    void InternalMessage(const char* textUtf8);
+
+    // the argument to func is the full utf8 text, which starts with ?command
+    void AddInternalCommand(const char* command, std::function<void(const char*)> func);
+
    private:
     shared_ptr<ChatData> data;
 };

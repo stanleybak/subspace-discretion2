@@ -1,7 +1,9 @@
 #include "Chat.h"
 #include "utf8.h"
 #include "Graphics.h"
+#include "Net.h"
 #include <deque>
+#include <map>
 
 class ChatData
 {
@@ -28,14 +30,17 @@ class ChatData
                                              {Chat_Channel, Color_Orange},
                                              {Chat_Remote, Color_Green},
                                              {Chat_Mode, Color_Pink},
-                                             {Chat_Internal, Color_Green}};
+                                             {Chat_Internal, Color_Red}};
 
     map<u8, ChatType> prefixMap = {
         {'\'', Chat_Team}, {'\"', Chat_EnemyTeam}, {'/', Chat_Private}, {';', Chat_Channel}};
 
+    map<string, std::function<void(const char*)>> internalCommandMap;
+
     void UpdateTypingText();
     ChatType GetTypingChatType();
     void UpdateChatLineVisuals();
+    bool CheckInternalCommand(const char* textUtf8);
 };
 
 Chat::Chat(Client& c) : Module(c), data(make_shared<ChatData>(c))
@@ -114,8 +119,12 @@ void Chat::TextEnter()
         // pop off first character
         if (type != Chat_Public)
             data->curTextUtf8 = data->curTextUtf8.substr(1, data->curTextUtf8.length() - 1);
-
-        ChatMessage(type, "Player", data->curTextUtf8.c_str());
+        else
+        {
+            if (data->curTextUtf8[0] != '?' ||
+                !data->CheckInternalCommand(data->curTextUtf8.c_str()))
+                ChatMessage(type, c.net->GetPlayerName(), data->curTextUtf8.c_str());
+        }
 
         data->curTextUtf8 = "";
         data->UpdateTypingText();
@@ -127,6 +136,57 @@ void Chat::SetEscPressedState(bool state)
     data->escState = state;
 
     data->UpdateChatLineVisuals();
+}
+
+void Chat::InternalMessage(const char* textUtf8)
+{
+    ChatMessage(Chat_Internal, nullptr, textUtf8);
+}
+
+void Chat::ChatMessage(ChatType type, const char* playerNameUtf8, const char* textUtf8)
+{
+    // chatBufferLines
+
+    TextColor col = data->chatColorMap.find(type)->second;
+
+    vector<shared_ptr<DrawnText>> newLines;
+    c.graphics->MakeDrawnChat(newLines, Layer_Chat, col, data->screenW, playerNameUtf8, textUtf8);
+
+    for (shared_ptr<DrawnText> line : newLines)
+        data->chatBufferLines.push_front(line);
+
+    while ((i32)data->chatBufferLines.size() > data->maxBufferLines)
+        data->chatBufferLines.pop_back();
+
+    data->UpdateChatLineVisuals();
+}
+
+void Chat::AddInternalCommand(const char* command, std::function<void(const char*)> func)
+{
+    bool error = false;
+
+    for (int i = 0; command[i]; ++i)
+    {
+        if (!isalnum(command[i]))
+        {
+            c.log->LogError("Malformed internal command name (expected alphanum only): %s",
+                            command);
+            error = true;
+            break;
+        }
+    }
+
+    if (!error && data->internalCommandMap.find(command) != data->internalCommandMap.end())
+    {
+        c.log->LogError("Command added twice: %s", command);
+        error = true;
+    }
+
+    if (!error)
+    {
+        c.log->LogDrivel("Added handler for internal command: '%s'", command);
+        data->internalCommandMap[command] = func;
+    }
 }
 
 void ChatData::UpdateTypingText()
@@ -177,20 +237,26 @@ void ChatData::UpdateChatLineVisuals()
     }
 }
 
-void Chat::ChatMessage(ChatType type, const char* playerNameUtf8, const char* textUtf8)
+bool ChatData::CheckInternalCommand(const char* textUtf8)
 {
-    // chatBufferLines
+    bool rv = false;
 
-    TextColor col = data->chatColorMap.find(type)->second;
+    if (textUtf8[0] == '?')
+    {
+        string prefix;
 
-    vector<shared_ptr<DrawnText>> newLines;
-    c.graphics->MakeDrawnChat(newLines, Layer_Chat, col, data->screenW, playerNameUtf8, textUtf8);
+        // command name is everything until the first non alpha-numeric value
+        for (u32 i = 1; isalnum(textUtf8[i]); ++i)
+            prefix += textUtf8[i];
 
-    for (shared_ptr<DrawnText> line : newLines)
-        data->chatBufferLines.push_front(line);
+        auto it = internalCommandMap.find(prefix);
 
-    while ((i32)data->chatBufferLines.size() > data->maxBufferLines)
-        data->chatBufferLines.pop_back();
+        if (it != internalCommandMap.end())
+        {
+            rv = true;
+            it->second(textUtf8);
+        }
+    }
 
-    data->UpdateChatLineVisuals();
+    return rv;
 }
