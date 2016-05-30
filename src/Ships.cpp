@@ -24,9 +24,10 @@ Ships::Ships(Client& c) : Module(c), data(make_shared<ShipsData>(c))
 {
     data->shipsImage = c.graphics->LoadImage("ships", 10, 32);
     data->powerballImage = c.graphics->LoadImage("powerb", 10, 3);
-    data->powerballAnim = make_shared<Animation>(data->powerballImage, 500, 0, 10);
+
+    data->powerballAnim = c.graphics->InitAnimation(data->powerballImage, 500, 0, 10);
     data->explodeBombImage = c.graphics->LoadImage("explode1", 6, 6);
-    data->explodeBombAnimation = make_shared<Animation>(data->explodeBombImage, 1000);
+    data->explodeBombAnimation = c.graphics->InitAnimation(data->explodeBombImage, 1000);
 
     data->drawnShip = c.graphics->MakeDrawnImage(Layer_Ships, data->shipsImage);
 

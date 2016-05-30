@@ -32,8 +32,9 @@ class Logman : public Module
     // log an error and then exit
     void FatalError(const char* format, ...);
 
-    LogLevel logLevelSave = LOG_INFO;     // minimum log level for saving to the terminal
-    LogLevel logLevelPrint = LOG_DRIVEL;  // minimum log level for printing
+    LogLevel logLevelSave = LOG_INFO;         // minimum log level for saving to the terminal
+    LogLevel logLevelPrint = LOG_DRIVEL;      // minimum log level for printing
+    LogLevel logLevelPrintStderr = LOG_INFO;  // minimum log level for printing to stderr
 
    private:
     FILE* f = nullptr;

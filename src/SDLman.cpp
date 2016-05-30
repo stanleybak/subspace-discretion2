@@ -11,9 +11,12 @@ struct SDLmanData
     i32 fpsMsRemaining = 1000;
     i32 fpsFrameCount = 0;
     shared_ptr<DrawnText> fpsText;
+    shared_ptr<DrawnText> shipInfoText;
 
     bool shouldExit = false;
+    bool escPressedState = false;
 
+    void EscapeToggled();
     void AdvanceState(i32 difMs);
     void ProcessEvent(SDL_Event* event);
     void DoIteration(i32 difMs);
@@ -29,7 +32,7 @@ void SDLmanData::UpdateFps(i32 difMs)
     {
         string text = "FPS: " + to_string(fpsFrameCount);
         fpsText = c.graphics->MakeDrawnText(Layer_Chat, Color_Red, text.c_str());
-        fpsText->SetPosition(150, 20);
+        fpsText->SetPosition(100, 20);
 
         fpsMsRemaining = 1000;
         fpsFrameCount = 0;
@@ -87,6 +90,12 @@ void SDLman::MainLoop()
     SDL_Rect rect = {50, (i32)h - 150, 0, 0};
     SDL_SetTextInputRect(&rect);
 
+    // load ship info text here
+    data->shipInfoText = c.graphics->MakeDrawnText(
+        Layer_Gauges, Color_Blue, "Q - Quit   1-8 - Change Ship   S - Spectator Mode");
+    data->shipInfoText->SetPosition(w / 2 - data->shipInfoText->GetWidth() / 2, 10);
+    data->shipInfoText->SetVisible(false);
+
     while (!data->shouldExit)
     {
         do
@@ -106,9 +115,12 @@ void SDLman::MainLoop()
 
     SDL_StopTextInput();
 
-    // explicitly free it here
+    // explicitly free images here (since this module is destroyed after graphics
     if (data->fpsText)
+    {
         data->fpsText = nullptr;
+        data->shipInfoText = nullptr;
+    }
 }
 
 void SDLmanData::ProcessEvent(SDL_Event* event)
@@ -124,17 +136,38 @@ void SDLmanData::ProcessEvent(SDL_Event* event)
 
             break;
         case SDL_TEXTINPUT:
-            c.chat->TextTyped(event->text.text);
+        {
+            bool escapeCommand = false;
+
+            if (escPressedState)
+            {
+                string text = event->text.text;
+
+                if (text.length() == 1)
+                {
+                    if (text[0] == 'q')
+                    {
+                        escapeCommand = true;
+                        shouldExit = true;
+                    }
+                    else if (text[0] >= '1' && text[0] <= '8')
+                        escapeCommand = true;
+                    else if (text[0] == 's')
+                        escapeCommand = true;
+                }
+
+                EscapeToggled();
+            }
+
+            if (!escapeCommand)
+                c.chat->TextTyped(event->text.text);
 
             break;
+        }
         case SDL_KEYDOWN:
 
             if (event->key.keysym.sym == SDLK_BACKSPACE)
                 c.chat->TextBackspace();
-
-            if (event->key.keysym.sym == SDLK_RETURN || event->key.keysym.sym == SDLK_KP_ENTER ||
-                event->key.keysym.sym == SDLK_RETURN2)
-                c.chat->TextEnter();
 
             if (event->key.repeat == 0)
             {
@@ -146,13 +179,21 @@ void SDLmanData::ProcessEvent(SDL_Event* event)
                     case SDLK_LEFT:
                                     playerPos.x -= movementFactor;
                                     break;
-                    // Remeber 0,0 in SDL is left-top. So when the user pressus down, the y need to
-                    increase*/
+                                    */
                     case SDLK_DOWN:
                         printf("down arrow\n");
                         break;
                     case SDLK_UP:
                         printf("up arrow\n");
+                        break;
+                    case SDLK_ESCAPE:
+                        EscapeToggled();
+                        break;
+
+                    case SDLK_RETURN:
+                    case SDLK_RETURN2:
+                    case SDLK_KP_ENTER:
+                        c.chat->TextEnter();
                         break;
                     default:
                         break;
@@ -166,4 +207,17 @@ void SDLmanData::ProcessEvent(SDL_Event* event)
 void SDLmanData::AdvanceState(i32 difMs)
 {
     c.ships->AdvanceState(difMs);
+}
+
+void SDLmanData::EscapeToggled()
+{
+    escPressedState = !escPressedState;
+
+    c.chat->SetEscPressedState(escPressedState);
+
+    // temporary, until we get a real escapebox
+    if (escPressedState)
+        shipInfoText->SetVisible(true);
+    else
+        shipInfoText->SetVisible(false);
 }

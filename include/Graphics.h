@@ -10,7 +10,11 @@
 #include <SDL2/SDL_image.h>
 #include <vector>
 
-struct GraphicsData;
+struct GraphicsData;   // private Graphics module data
+class ManagedTexture;  // an sdl_texture with automatic memory management
+class DrawnObject;     // an automatically-drawn object
+struct Image;          // a loaded texture + information about how many frames are in it
+struct Animation;      // an image + animation data (timing, frame offset, ect).
 
 // The layer enum, note you can define your own layers between these ones if you want
 enum Layer
@@ -35,18 +39,13 @@ enum TextColor
 {
     Color_Grey,
     Color_Green,
+    Color_Blue,
     Color_Red,
     Color_Yellow,
     Color_Purple,
     Color_Orange,
     Color_Pink,
 };
-
-// an sdl_texture with automatic memory management
-class ManagedTexture;
-
-// an automatically-drawn object
-class DrawnObject;
 
 // automatically-drawn text
 class DrawnText
@@ -57,38 +56,10 @@ class DrawnText
     void SetPosition(i32 x, i32 y);
     u32 GetHeight();
     u32 GetWidth();
+    void SetVisible(bool vis);
 
    private:
     shared_ptr<DrawnObject> d;
-};
-
-struct Image
-{
-    Image(int numXFrames, int numYFrames, shared_ptr<ManagedTexture> tex, const char* filename);
-
-    i32 numXFrames = 1;  // x frames in texture
-    i32 numYFrames = 1;  // y frames in texture
-
-    i32 frameWidth = -1;
-    i32 frameHeight = -1;
-    i32 halfFrameWidth = -1;
-    i32 halfFrameHeight = -1;
-
-    i32 textureWidth = -1;
-    i32 textureHeight = -1;
-    shared_ptr<ManagedTexture> texture;
-    string filename;
-};
-
-struct Animation
-{
-    Animation(shared_ptr<Image> i, u32 animMs, u32 animFrameOffset, u32 animNumFrames);
-    Animation(shared_ptr<Image> i, u32 animMs);
-
-    shared_ptr<Image> image;
-    u32 animMs;
-    u32 animFrameOffset;
-    u32 animNumFrames;
 };
 
 // automatically-drawn image
@@ -103,6 +74,7 @@ class DrawnImage
     u32 GetFrame();
     void SetFrame(u32 frameNum);
     void SetCenteredScreenPosition(i32 x, i32 y);
+    void SetVisible(bool vis);
     void AdvanceAnimation(u32 mills);
 
    private:
@@ -142,6 +114,10 @@ class Graphics : public Module
 
     shared_ptr<Image> LoadImage(const char* filename);
     shared_ptr<Image> LoadImage(const char* filename, u32 framesW, u32 framesH);
+
+    shared_ptr<Animation> InitAnimation(shared_ptr<Image> i, u32 animMs, u32 animFrameOffset,
+                                        u32 animNumFrames);
+    shared_ptr<Animation> InitAnimation(shared_ptr<Image> i, u32 animMs);
 
    private:
     shared_ptr<GraphicsData> data;

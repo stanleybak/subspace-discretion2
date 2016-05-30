@@ -102,12 +102,22 @@ void Logman::FatalError(const char* format, ...)
 
 void Logman::LogVaList(LogLevel level, const char* format, va_list args)
 {
-    if (level >= logLevelPrint)
+    if (level >= logLevelPrint || level >= logLevelPrintStderr)
     {
-        printf("%s ", LOG_PREFIX[level]);
         va_list args_copy;
         va_copy(args_copy, args);  // copy in case we're printing to both terminal and file
-        vprintf(format, args_copy);
+
+        if (level >= logLevelPrintStderr)
+        {
+            fprintf(stderr, "%s ", LOG_PREFIX[level]);
+            vfprintf(stderr, format, args_copy);
+        }
+        else
+        {
+            printf("%s ", LOG_PREFIX[level]);
+            vprintf(format, args_copy);
+        }
+
         va_end(args_copy);
         printf("\n");
     }

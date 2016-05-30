@@ -18,6 +18,34 @@ class ManagedTexture
     SDL_Texture* rawTexture = nullptr;
 };
 
+struct Image
+{
+    Image(int numXFrames, int numYFrames, shared_ptr<ManagedTexture> tex, const char* filename);
+
+    i32 numXFrames = 1;  // x frames in texture
+    i32 numYFrames = 1;  // y frames in texture
+
+    i32 frameWidth = -1;
+    i32 frameHeight = -1;
+    i32 halfFrameWidth = -1;
+    i32 halfFrameHeight = -1;
+
+    i32 textureWidth = -1;
+    i32 textureHeight = -1;
+    shared_ptr<ManagedTexture> texture;
+    string filename;
+};
+
+struct Animation
+{
+    Animation(shared_ptr<Image> i, u32 animMs, u32 animFrameOffset, u32 animNumFrames);
+
+    shared_ptr<Image> image;
+    u32 animMs;
+    u32 animFrameOffset;
+    u32 animNumFrames;
+};
+
 // super class for all drawn objects
 class DrawnObject
 {
@@ -33,7 +61,8 @@ class DrawnObject
     shared_ptr<ManagedTexture> texture;
     SDL_Rect src = {0, 0, -1, 0};  // src.w = -1 means use nullptr
     SDL_Rect dest = {0, 0, 0, 0};
-    const char* name;
+    bool visible = true;
+    const char* name = nullptr;
 
    private:
     shared_ptr<GraphicsData> gd;
@@ -72,32 +101,24 @@ struct GraphicsData
     multimap<Layer, DrawnObject*> drawnObjs;
     multimap<u32, shared_ptr<DrawnImage>> singleAnimations;  // expirationMs -> DrawnImage
     unordered_set<DrawnImage*> animations;
-};
 
-void GraphicsData::MakeDrawnText(vector<shared_ptr<DrawnText>>& store,
-                                 shared_ptr<GraphicsData> data, Layer layer, TextColor color,
-                                 u32 wrapPixels, const char* playerNameUtf8, const char* utf8)
-{
-    SDL_Color textColor = {64, 64, 64, 255};
-
-    pair<TextColor, SDL_Color> colors[] = {
+    map<TextColor, SDL_Color> colorMap = {
         {Color_Grey, {0xb5, 0xb5, 0xb5, 255}},
         {Color_Green, {0x73, 0xff, 0x63, 255}},
+        {Color_Blue, {0xb5, 0xb5, 0xff, 255}},
         {Color_Red, {0xde, 0x31, 0x08, 255}},
         {Color_Yellow, {0xff, 0xbd, 0x29, 255}},
         {Color_Purple, {0xad, 0x6b, 0xf7, 255}},
         {Color_Orange, {0xef, 0x6b, 0x18, 255}},
         {Color_Pink, {0xff, 0xb5, 0xb5, 255}},
     };
+};
 
-    for (auto p : colors)
-    {
-        if (p.first == color)
-        {
-            textColor = p.second;
-            break;
-        }
-    }
+void GraphicsData::MakeDrawnText(vector<shared_ptr<DrawnText>>& store,
+                                 shared_ptr<GraphicsData> data, Layer layer, TextColor color,
+                                 u32 wrapPixels, const char* playerNameUtf8, const char* utf8)
+{
+    SDL_Color textColor = colorMap.find(color)->second;
 
     vector<SDL_Surface*> surfStore;
 
@@ -441,10 +462,13 @@ SDL_Texture* GraphicsData::SurfaceToTexture(SDL_Surface* s)
 
 void DrawnObject::Draw(SDL_Renderer* r)
 {
-    if (src.w == -1)
-        SDL_RenderCopy(r, texture->rawTexture, nullptr, &dest);
-    else
-        SDL_RenderCopy(r, texture->rawTexture, &src, &dest);
+    if (visible)
+    {
+        if (src.w == -1)
+            SDL_RenderCopy(r, texture->rawTexture, nullptr, &dest);
+        else
+            SDL_RenderCopy(r, texture->rawTexture, &src, &dest);
+    }
 }
 
 DrawnObject::DrawnObject(shared_ptr<GraphicsData> gd, Layer layer,
@@ -482,6 +506,11 @@ DrawnObject::~DrawnObject()
 
     if (!found)
         gd->c.log->LogError("Drawable::~Drawable Unregistering drawable not found in draw list.");
+}
+
+void DrawnText::SetVisible(bool vis)
+{
+    d->visible = vis;
 }
 
 void DrawnText::SetPosition(i32 x, i32 y)
@@ -573,6 +602,11 @@ void DrawnImage::SetCenteredScreenPosition(i32 x, i32 y)
     drawnObj->dest.y = y - image->halfFrameWidth;
 }
 
+void DrawnImage::SetVisible(bool vis)
+{
+    drawnObj->visible = vis;
+}
+
 Image::Image(int numXFrames, int numYFrames, shared_ptr<ManagedTexture> tex, const char* filename)
     : numXFrames(numXFrames), numYFrames(numYFrames), texture(tex), filename(filename)
 {
@@ -586,11 +620,6 @@ Image::Image(int numXFrames, int numYFrames, shared_ptr<ManagedTexture> tex, con
 
 Animation::Animation(shared_ptr<Image> i, u32 animMs, u32 animFrameOffset, u32 animNumFrames)
     : image(i), animMs(animMs), animFrameOffset(animFrameOffset), animNumFrames(animNumFrames)
-{
-}
-
-Animation::Animation(shared_ptr<Image> i, u32 animMs)
-    : image(i), animMs(animMs), animFrameOffset(0), animNumFrames(i->numXFrames * i->numYFrames)
 {
 }
 
@@ -799,4 +828,15 @@ shared_ptr<Image> Graphics::LoadImage(const char* filename, u32 w, u32 h)
     shared_ptr<Image> rv = make_shared<Image>(w, h, mt, filename);
 
     return rv;
+}
+
+shared_ptr<Animation> Graphics::InitAnimation(shared_ptr<Image> i, u32 animMs, u32 animFrameOffset,
+                                              u32 animNumFrames)
+{
+    return make_shared<Animation>(i, animMs, animFrameOffset, animNumFrames);
+}
+
+shared_ptr<Animation> Graphics::InitAnimation(shared_ptr<Image> i, u32 animMs)
+{
+    return make_shared<Animation>(i, animMs, 0, i->numXFrames * i->numYFrames);
 }
