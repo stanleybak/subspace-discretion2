@@ -34,7 +34,7 @@ RELEASE_FILE=DiscretionTwo.exe
 endif
 #################################
 
-LDFLAGS += -lSDL2 -lSDL2_image -lSDL2_ttf
+LDFLAGS += -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net
 
 .PHONY: all clean directories release dllDeps
 

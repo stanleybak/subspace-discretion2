@@ -1,106 +1,241 @@
 #include "Net.h"
 #include "Chat.h"
 #include <string.h>
+#include <list>
+#include "SDL2/SDL_net.h"
 
 struct NetData
 {
+    struct QueuedReliablePacket
+    {
+        QueuedReliablePacket(vector<u8>* _data, u32 _ackId, i32 resendMs)
+        {
+            data = *_data;
+            ackId = _ackId;
+
+            timesSent = 1;
+            msUntilNextSend = resendMs;
+        }
+
+        u32 ackId;
+        vector<u8> data;
+
+        i32 msUntilNextSend;
+        i32 timesSent;
+    };
+
+    struct StreamData
+    {
+        StreamData() { reset(); };
+        void reset()
+        {
+            data.clear();
+            len = -1;
+            pos = 0;
+            abortFunc = nullptr;
+            progressFunc = nullptr;
+        };
+
+        vector<u8> data;
+        i32 len = -1;
+        int pos = 0;
+
+        std::function<void()> abortFunc;
+        std::function<void(i32, i32)> progressFunc;  // gotBytes, totalBytes
+    };
+
+    i32 MAX_BYTES_PER_PACKET = 512;
+
     Client& c;
-    string username;
-    string pwOverride;
-    string connectAddr;
+
+    i32 maxStreamLen = c.cfg->GetInt("Net", "Max File Size", 4194304);
+    i32 reliableResendTime = c.cfg->GetInt("Net", "Reliable Resend Mills", 300);
+    i32 reliableWarnRetries = c.cfg->GetInt("Net", "Reliable Warn Retries", 5);
+    i32 reliableMaxRetries = c.cfg->GetInt("Net", "Reliable Max Retries", 10);
+
+    UDPsocket sock = nullptr;
+    i32 channel = -1;
+    UDPpacket* packet = nullptr;
+
+    vector<vector<u8> > packetQueue;
+    StreamData streamDataIn;
+    list<QueuedReliablePacket> relPackets;
+    map<u32, vector<u8> > backloggedPackets;
+    u32 nextIncomingReliableId = 0;
+    u32 nextOutgoingReliableId = 0;
 
     NetData(Client& c) : c(c) {}
 
-    std::function<void(const char*)> connectFunc = [this](const char* textUtf8)
+    ~NetData()
     {
-        if (string("?connect") == textUtf8)
+        ResetConnectionResources();  // will close socket and free resources
+    }
+
+    void ResetConnectionResources()
+    {
+        // unbind
+        if (channel != -1)
         {
-            string msg = "Connecting to " + connectAddr;
-            c.chat->InternalMessage(msg.c_str());
+            SDLNet_UDP_Unbind(sock, channel);
+            channel = -1;
         }
-        else
-            c.chat->InternalMessage("Expected plain '?connect' command.");
-    };
 
-    std::function<void(const char*)> nameFunc = [this](const char* textUtf8)
-    {
-        if (strstr(textUtf8, "?name=") == textUtf8)
+        // close
+        if (sock != nullptr)
         {
-            string name = textUtf8 + sizeof("?name");
+            SDLNet_UDP_Close(sock);
+            sock = NULL;
+        }
 
-            if (name.length() > 0)
-            {
-                username = name;
-                string msg = "Set name to " + username + ".";
-                c.chat->InternalMessage(msg.c_str());
-            }
+        // and free our reusable packet
+        if (packet != nullptr)
+        {
+            SDLNet_FreePacket(packet);
+            packet = nullptr;
+        }
+
+        // reset state of reliable packets
+        nextIncomingReliableId = 0;
+        nextOutgoingReliableId = 0;
+
+        relPackets.clear();
+        backloggedPackets.clear();
+    }
+
+    // returns true if it was setup correctly
+    bool SetupSocket(const char* hostname, u16 port)
+    {
+        bool rv = false;
+
+        ResetConnectionResources();
+
+        sock = SDLNet_UDP_Open(0);
+
+        if (!sock)
+            c.log->LogError("SDLNet_UDP_Open: %s\n", SDLNet_GetError());
+        else
+        {
+            IPaddress ip;
+
+            if (SDLNet_ResolveHost(&ip, hostname, port) == -1)
+                c.log->LogError("SDLNet_ResolveHost: %s\n", SDLNet_GetError());
             else
-                c.chat->InternalMessage("Expected '?name=XYZ'.");
-        }
-        else
-            c.chat->InternalMessage("Expected '?name=XYZ'.");
-    };
-
-    std::function<void(const char*)> pwFunc = [this](const char* textUtf8)
-    {
-        if (strstr(textUtf8, "?pw=") == textUtf8)
-        {
-            string pw = textUtf8 + sizeof("?pw");
-
-            if (pw.length() > 0)
             {
-                pwOverride = pw;
-                string msg = "Set password.";
-                c.chat->InternalMessage(msg.c_str());
-            }
-            else
-                c.chat->InternalMessage("Expected '?pw=XYZ'.");
-        }
-        else
-            c.chat->InternalMessage("Expected '?pw=XYZ'.");
-    };
+                channel = SDLNet_UDP_Bind(sock, -1, &ip);
 
-    std::function<void(const char*)> ipFunc = [this](const char* textUtf8)
+                if (channel == -1)
+                    c.log->LogError("SDLNet_UDP_Bind: %s\n", SDLNet_GetError());
+                else
+                {
+                    // allocate our reusable packet once (freed on disconnect)
+                    packet = SDLNet_AllocPacket(MAX_BYTES_PER_PACKET);
+
+                    if (!packet)
+                        c.log->LogError("SDLNet_AllocPacket: %s\n", SDLNet_GetError());
+                    else
+                        rv = true;
+                }
+            }
+        }
+
+        // on error, free any resources that we successfully acquired
+        if (!rv)
+            ResetConnectionResources();
+
+        return rv;
+    }
+
+    void SetStatus(const char* message) { c.chat->InternalMessage(message); }
+
+    void ResendLostReliablePackets(i32 ms)
     {
-        if (strstr(textUtf8, "?ip=") == textUtf8)
+        for (list<QueuedReliablePacket>::iterator i = relPackets.begin(); i != relPackets.end();
+             ++i)
         {
-            string addr = textUtf8 + sizeof("?ip");
+            i->msUntilNextSend -= ms;
 
-            if (addr.length() > 0)
+            if (i->msUntilNextSend < 0)  // resend it
             {
-                connectAddr = addr;
-                string msg = "Set connect address to " + connectAddr;
-                c.chat->InternalMessage(msg.c_str());
+                ++(i->timesSent);
+
+                if (i->timesSent >= reliableMaxRetries)
+                {
+                    // too many reliable reties; disconnect
+                    c.net->Disconnect();
+
+                    SetStatus("You have disconnected from the server. (too many reliable retries)");
+                }
+                else
+                {
+                    i->msUntilNextSend = reliableResendTime;
+                    packetQueue.push_back(i->data);
+
+                    if (i->timesSent >= reliableWarnRetries)
+                    {
+                        char buf[128];
+
+                        snprintf(buf, sizeof(buf),
+                                 "Warning: Resending reliable packet. Attempt: %i", i->timesSent);
+                        c.chat->InternalMessage(buf);
+                    }
+                }
             }
-            else
-                c.chat->InternalMessage("Expected '?ip=XYZ'.");
         }
-        else
-            c.chat->InternalMessage("Expected '?ip=XYZ'.");
     };
 };
 
 Net::Net(Client& c) : Module(c), data(make_shared<NetData>(c))
 {
-    data->username = c.cfg->GetString("net", "username", "Player");
-    data->connectAddr = c.cfg->GetString("net", "connect_addr", "127.0.0.1:5000");
-
-    c.chat->AddInternalCommand("connect", data->connectFunc);
-    c.chat->AddInternalCommand("name", data->nameFunc);
-    c.chat->AddInternalCommand("pw", data->pwFunc);
-    c.chat->AddInternalCommand("ip", data->ipFunc);
-
-    string intro = "Use ?connect to connect to " + data->connectAddr + " with username " +
-                   data->username + " or change using ?name, ?pw, or ?ip.";
-
-    c.chat->ChatMessage(Chat_Remote, nullptr, intro.c_str());
 }
 
 Net::~Net()
 {
 }
 
-const char* Net::GetPlayerName()
+void Net::AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func)
 {
-    return data->username.c_str();
+}
+
+void Net::SendPacket(PacketInstance* packet, const char* templateName)
+{
+}
+
+void Net::SendReliablePacket(PacketInstance* packet, const char* templateName)
+{
+}
+
+bool Net::NewConnection(const char* hostname, u16 port)
+{
+    bool rv = data->SetupSocket(hostname, port);
+
+    if (rv)
+    {
+    }
+
+    return rv;
+}
+
+void Net::Disconnect()
+{
+    // if we're connected, send a disconnect packet
+    if (data->packet != nullptr)
+    {
+        PacketInstance pi;
+        SendPacket(&pi, "disconnect");
+    }
+
+    data->ResetConnectionResources();
+}
+
+void Net::SendAndReceive(i32 iterationMs)
+{
+    if (data->sock != nullptr)
+    {
+        // first receive
+
+        // than send
+        data->ResendLostReliablePackets(iterationMs);
+
+        // flush packetQueue
+    }
 }

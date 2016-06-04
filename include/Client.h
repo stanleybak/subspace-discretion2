@@ -19,6 +19,8 @@ class Timers;
 class Ships;
 class Chat;
 class Net;
+class Packets;
+class Connection;
 
 class Client
 {
@@ -30,10 +32,12 @@ class Client
     // unknown)
     shared_ptr<Config> cfg;
     shared_ptr<Logman> log;
+    shared_ptr<Net> net;
     shared_ptr<SDLman> sdl;
     shared_ptr<Graphics> graphics;
     shared_ptr<Timers> timers;
     shared_ptr<Chat> chat;
     shared_ptr<Ships> ships;
-    shared_ptr<Net> net;
+    shared_ptr<Packets> packets;
+    shared_ptr<Connection> connection;
 };

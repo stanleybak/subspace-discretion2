@@ -4,6 +4,7 @@
 #include "Ships.h"
 #include "Chat.h"
 #include "Timers.h"
+#include "Net.h"
 
 struct SDLmanData
 {
@@ -152,6 +153,7 @@ void SDLmanData::ProcessEvent(SDL_Event* event)
 
 void SDLmanData::AdvanceState(i32 difMs)
 {
+    c.net->SendAndReceive(difMs);
     c.ships->AdvanceState(difMs);
     c.timers->AdvanceTime(difMs);
 }

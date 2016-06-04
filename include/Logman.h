@@ -9,7 +9,6 @@
 
 #include "Module.h"
 #include <stdarg.h>
-#include <stdio.h>
 
 enum LogLevel
 {

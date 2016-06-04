@@ -67,6 +67,7 @@ shared_ptr<Timer> Timers::PeriodicTimer(const char* name, i32 mills, std::functi
 
 void Timers::AdvanceTime(i32 ms)
 {
+    // handle single timers
     for (u32 i = 0; i < data->singleTimers.size(); /* increment in loop */)
     {
         data->singleTimers[i].first -= ms;
@@ -83,6 +84,7 @@ void Timers::AdvanceTime(i32 ms)
             ++i;  // didn't delete, increment
     }
 
+    // handle repeating timers
     for (u32 i = 0; i < data->timersList.size(); ++i)
     {
         data->timersList[i]->curDelay -= ms;

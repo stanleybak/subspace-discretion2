@@ -301,6 +301,7 @@ i32 Config::GetInt(const char* section, const char* name, i32 def, bool (*IsAllo
     return val;
 }
 
+// may return nullptr
 const char* Config::GetStringNoDefault(const char* sectionCstr, const char* nameCstr)
 {
     const char* rv = nullptr;

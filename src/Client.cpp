@@ -7,6 +7,8 @@
 #include "Chat.h"
 #include "Timers.h"
 #include "Net.h"
+#include "Packets.h"
+#include "Connection.h"
 
 #ifndef WIN32
 #include <signal.h>
@@ -134,12 +136,14 @@ Client::Client()
     :  // initialization order matters, add to the end
       cfg(make_shared<Config>(*this)),
       log(make_shared<Logman>(*this)),
+      net(make_shared<Net>(*this)),
       sdl(make_shared<SDLman>(*this)),
       graphics(make_shared<Graphics>(*this)),
       timers(make_shared<Timers>(*this)),
       chat(make_shared<Chat>(*this)),
       ships(make_shared<Ships>(*this)),
-      net(make_shared<Net>(*this))
+      packets(make_shared<Packets>(*this)),
+      connection(make_shared<Connection>)
 {
 #ifndef WIN32
     // this requires being compiled with -g -rdynamic to get function names to work
