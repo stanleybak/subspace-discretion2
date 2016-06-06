@@ -44,7 +44,9 @@ struct NetData
         std::function<void(i32, i32)> progressFunc;  // gotBytes, totalBytes
     };
 
-    i32 MAX_BYTES_PER_PACKET = 512;
+    const i32 MAX_BYTES_PER_PACKET = 512;
+    const u8 CORE_HEADER = 0x00;
+    const u8 RELIABLE_HEADER = 0x03;
 
     Client& c;
 
@@ -52,17 +54,25 @@ struct NetData
     i32 reliableResendTime = c.cfg->GetInt("Net", "Reliable Resend Mills", 300);
     i32 reliableWarnRetries = c.cfg->GetInt("Net", "Reliable Warn Retries", 5);
     i32 reliableMaxRetries = c.cfg->GetInt("Net", "Reliable Max Retries", 10);
+    i32 maxTimeWithoutData = c.cfg->GetInt("Net", "Max Time Without Data", 10);
 
     UDPsocket sock = nullptr;
     i32 channel = -1;
     UDPpacket* packet = nullptr;
+    i32 lastData = 0;
 
-    vector<vector<u8> > packetQueue;
+    vector<vector<u8>> packetQueue;
     StreamData streamDataIn;
     list<QueuedReliablePacket> relPackets;
-    map<u32, vector<u8> > backloggedPackets;
+    map<u32, vector<u8>> backloggedPackets;
     u32 nextIncomingReliableId = 0;
     u32 nextOutgoingReliableId = 0;
+
+    multimap<string, std::function<void(const PacketInstance*)>> nameToFunctionMap;
+    map<u16, map<u16, string>> incomingPacketIdToLengthToNameMap;  // second one is a length map
+
+    multimap<u8, std::function<void(u8*, i32)>> coreHandlerFuncMap;
+    multimap<u8, std::function<void(u8*, i32)>> gameHandlerFuncMap;
 
     NetData(Client& c) : c(c) {}
 
@@ -133,7 +143,11 @@ struct NetData
                     if (!packet)
                         c.log->LogError("SDLNet_AllocPacket: %s\n", SDLNet_GetError());
                     else
+                    {
+                        lastData = SDL_GetTicks();  // so we don't disconnect right away
+
                         rv = true;
+                    }
                 }
             }
         }
@@ -161,7 +175,7 @@ struct NetData
                 if (i->timesSent >= reliableMaxRetries)
                 {
                     // too many reliable reties; disconnect
-                    c.net->Disconnect();
+                    c.connection->Disconnect();
 
                     SetStatus("You have disconnected from the server. (too many reliable retries)");
                 }
@@ -181,26 +195,126 @@ struct NetData
                 }
             }
         }
-    };
+    }
+
+    void ProcessPacket(bool core, u8 type, u8* data, int len)
+    {
+        pair<multimap<u8, void (*)(u8*, int)>::iterator, multimap<u8, void (*)(u8*, int)>::iterator>
+            range;
+
+        if (core)
+            range = coreHandlerFuncMap.equal_range(type);
+        else
+            range = gameHandlerFuncMap.equal_range(type);
+
+        if (range.first == range.second)  // no handlers
+            c.log->LogError("Packet received of type %02x (%s) len = %i, but no handler exists!",
+                            type, core ? "core packet" : "non-core packet", len);
+
+        // call all of the handlers for this type
+        for (; range.first != range.second; ++range.first)
+            range.first->second(data, len);
+    }
+
+    void PumpPacket(u8* data, int len)
+    {
+        if (len > 0)
+        {
+            int type = -1;
+            bool core = false;
+
+            if (data[0] == 0x00)  // core packet
+            {
+                if (len > 1)
+                {
+                    core = true;
+                    type = data[1];
+                }
+                else
+                    LOG_ERROR("core packet with length < 2");
+            }
+            else
+                type = data[0];
+
+            if (type != -1)
+                ProcessPacket(core, (u8)type, data, len);
+        }
+        else
+            c.log->LogError("pumpPacket's packetlen <= 0");
+    }
+
+    void PollSocket(i32 ms)
+    {
+        i32 now = SDL_GetTicks();
+
+        while (SDLNet_UDP_Recv(sock, packet))
+        {
+            // dumpPacket("RECV", (u8*)packet->data, packet->len);
+
+            lastData = now;
+            PumpPacket(packet->data, packet->len);
+        }
+
+        if (now - lastData > maxTimeWithoutData)  // we should disconnect, no data
+        {
+            PacketInstance pi;
+            c.packets->SendPacket(&pi, "disconnect");
+
+            SetStatus("You have disconnected from the server (no data coming in).");
+            c.connection->Disconnect();
+        }
+    }
+
+    void AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func)
+    {
+        pair<string, std::function<void(const PacketInstance*)>> toInsert(name, func);
+
+        nameToFunctionMap.insert(toInsert);
+
+        PacketTemplate* pt = GetTemplate(name, false);
+
+        if (pt)
+        {
+            u16 type = pt->isCore ? pt->type : (pt->type << 8);
+
+            if (listeningForTypes.find(type) == listeningForTypes.end())
+            {  // insert and register
+                c.net->RegisterPacketHandler(pt->isCore, pt->type, templatePacketRecevied);
+
+                listeningForTypes.insert(type);
+            }
+        }
+    }
+
+    void AddRawPacketHandler(bool core, u8 type, std::function<void(u8*, i32)> func)
+    {
+        if (core)
+            coreHandlerFuncMap.insert(pair<u8, void (*)(u8*, int)>(type, func));
+        else
+            gameHandlerFuncMap.insert(pair<u8, void (*)(u8*, int)>(type, func));
+    }
 };
 
 Net::Net(Client& c) : Module(c), data(make_shared<NetData>(c))
 {
+    // todo: figure out the ordering on this
+    /*registerPacketHandler(true, 0x03, handleReliablePacket);
+    registerPacketHandler(true, 0x0E, handleClusterPacket);
+    registerPacketHandler(true, 0x0A, handleStream);
+
+    // parsed
+    c.packets->regPacketFunc("cancel stream response", handleCancelStreamResponse);
+    mm->net.regPacketFunc("sync pong", handleSyncPong);
+    mm->net.regPacketFunc("sync request", handleSyncRequest);
+    mm->net.regPacketFunc("keep alive", handleKeepAlive);
+    mm->net.regPacketFunc("reliable response", handleReliableReponse);
+    mm->net.regPacketFunc("encryption response", handleEncryptionResponse);
+    mm->net.regPacketFunc("password response", handlePasswordResponse);
+    mm->net.regPacketFunc("disconnect", handleDisconnect);
+    */
 }
 
 Net::~Net()
-{
-}
-
-void Net::AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func)
-{
-}
-
-void Net::SendPacket(PacketInstance* packet, const char* templateName)
-{
-}
-
-void Net::SendReliablePacket(PacketInstance* packet, const char* templateName)
 {
 }
 
@@ -215,27 +329,39 @@ bool Net::NewConnection(const char* hostname, u16 port)
     return rv;
 }
 
-void Net::Disconnect()
+void Net::DisconnectSocket()
 {
     // if we're connected, send a disconnect packet
     if (data->packet != nullptr)
     {
-        PacketInstance pi;
-        SendPacket(&pi, "disconnect");
+        c.connection->Disconnect();
     }
 
     data->ResetConnectionResources();
 }
 
-void Net::SendAndReceive(i32 iterationMs)
+void Net::ReceivePackets(i32 ms)
 {
     if (data->sock != nullptr)
     {
-        // first receive
-
-        // than send
-        data->ResendLostReliablePackets(iterationMs);
-
-        // flush packetQueue
+        data->PollSocket(ms);
     }
+}
+
+void Net::SendPackets(i32 ms)
+{
+    data->ResendLostReliablePackets(ms);
+}
+
+void Net::AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func)
+{
+    data->AddPacketHandler(name, func);
+}
+
+void Net::SendPacket(PacketInstance* packet, const char* templateName)
+{
+}
+
+void Net::SendReliablePacket(PacketInstance* packet, const char* templateName)
+{
 }

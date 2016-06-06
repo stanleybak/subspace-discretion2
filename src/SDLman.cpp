@@ -45,10 +45,13 @@ struct SDLmanData
 
 void SDLmanData::PreDestroy()
 {
-    // explicitly free resources here (since this module gets destroyed after graphics
+    // explicitly free resources here (since this module gets destroyed after graphics and others
     fpsTimer = nullptr;
     fpsText = nullptr;
     shipInfoText = nullptr;
+
+    // in case we haven't disconnected yet
+    c.net->Disconnect();
 }
 
 void SDLmanData::PostInit()
@@ -151,11 +154,15 @@ void SDLmanData::ProcessEvent(SDL_Event* event)
     }
 }
 
-void SDLmanData::AdvanceState(i32 difMs)
+void SDLmanData::AdvanceState(i32 ms)
 {
-    c.net->SendAndReceive(difMs);
-    c.ships->AdvanceState(difMs);
-    c.timers->AdvanceTime(difMs);
+    c.net->ReceivePackets(ms);
+    c.connection->UpdateConnectionStatus(ms);
+
+    c.ships->AdvanceState(ms);
+    c.timers->AdvanceTime(ms);
+
+    c.net->SendPackets(ms);
 }
 
 void SDLmanData::EscapeToggled()

@@ -1,6 +1,7 @@
 #include "Connection.h"
 #include "Packets.h"
 #include "Net.h"
+#include <SDL2/SDL.h>
 
 struct ConnectionData
 {
@@ -30,6 +31,15 @@ struct ConnectionData
     string password;
     string connectAddr;
     ConnectionStatus state = STATUS_NOT_CONNECTED;
+    i32 protocolVersion = c.cfg->GetInt("Net", "Protocol Version", 0x1);
+    i32 encryptionKey = c.cfg->GetInt("Net", "Encryption Key", 0x1);
+    i32 clientVersion = c.cfg->GetInt("Net", "Client Version", 0x02);
+
+    i32 numberEncryptionRequests = 0;
+    i32 nextEncryptionRequestMs = 0;
+
+    i32 connectRetryMs = c.cfg->GetInt("Net", "Connection Retry Delay Mills", 1000);
+    i32 maxConnectionAttempts = c.cfg->GetInt("Net", "Max Connection Attempts", 10);
 
     std::function<void(const char*)> connectFunc = [this](const char* textUtf8)
     {
@@ -122,25 +132,49 @@ struct ConnectionData
             c.chat->InternalMessage("Expected '?ip=XYZ'.");
     };
 
+    std::function<void(const PacketInstance*)> handleEncryptionReponse =
+        [this](const PacketInstance* pi)
+    {
+        if (state == STATUS_SENT_ENCRYPTION_REQUEST)
+        {
+            c.chat->InternalMessage("Got Encryption Response; Sent Password Request");
+            // in the future we might do something with the client key
+
+            // send the password packet
+            PacketInstance packet;
+
+            packet.setValue("name", username.c_str());
+            packet.setValue("password", password.c_str());
+            packet.setValue("client version", clientVersion);
+
+            c.net->SendReliablePacket(&packet, "password request");
+
+            PacketInstance p2;
+            p2.setValue("timestamp", SDL_GetTicks());
+            c.net->SendPacket(&p2, "sync ping");
+
+            state = STATUS_SENT_PASSWORD;
+        }
+        // otherwise it might have been a packet that we just got late from an earlier request,
+        // silently
+        // ignore
+    };
+
     ConnectionData(Client& client) : c(client) {}
 
     void SendConnectRequest()
     {
         PacketInstance p;
-        p.setValue("protocol", discretionProtocolVersion);
-        p.setValue("key", discretionEncryptionKey);
-        c.net->sendPacket(&p, "encryption request");
+        p.setValue("protocol", protocolVersion);
+        p.setValue("key", encryptionKey);
+        c.net->SendPacket(&p, "encryption request");
 
         // reset variables
-        shouldDisconnect = false;
-        numberSent = 1;
-
-        // start the timer to resend it
-        timers->singleTimer(__FILE__, connectRetryDelay, resendEncryptionRequest);
-
-        setStatus("Sent Encryption Request", "grey");
-        // and set the state
         state = STATUS_SENT_ENCRYPTION_REQUEST;
+        numberEncryptionRequests = 1;
+        nextEncryptionRequestMs = connectRetryMs;
+
+        c.log->LogDrivel("Sent First Encryption Request");
     }
 
     void Connect(const char* username, const char* password, const char* hostname, u16 port)
@@ -172,6 +206,8 @@ Connection::Connection(Client& c) : Module(c), data(make_shared<ConnectionData>(
                    data->username + " or change using ?name, ?pw, or ?ip.";
 
     c.chat->ChatMessage(Chat_Remote, nullptr, intro.c_str());
+
+    c.net->AddPacketHandler("encryption response", data->handleEncryptionReponse);
 }
 
 Connection::~Connection()
@@ -181,4 +217,46 @@ Connection::~Connection()
 void Connection::Connect(const char* name, const char* pw, const char* hostname, u16 port)
 {
     data->Connect(name, pw, hostname, port);
+}
+
+void Connection::Disconnect()
+{
+    if (data->state != data->STATUS_NOT_CONNECTED)
+    {
+        data->state = data->STATUS_NOT_CONNECTED;
+
+        PacketInstance pi;
+        c.packets->SendPacket(&pi, "disconnect");
+
+        c.net->DisconnectSocket();
+    }
+}
+
+void Connection::UpdateConnectionStatus(i32 ms)
+{
+    if (data->state == data->STATUS_SENT_ENCRYPTION_REQUEST)
+    {
+        data->nextEncryptionRequestMs -= ms;
+
+        if (data->nextEncryptionRequestMs < 0)
+        {
+            if (++data->numberEncryptionRequests > data->maxConnectionAttempts)
+            {
+                c.chat->InternalMessage("Server did not respond to connection requests.");
+                c.log->LogDrivel("Exceeded max connection attempts, giving up.");
+                c.net->Disconnect();
+                data->state = data->STATUS_NOT_CONNECTED;
+            }
+            else
+            {
+                c.log->LogDrivel("Sending Encryption Request #%d", data->numberEncryptionRequests);
+                data->nextEncryptionRequestMs = data->connectRetryMs;
+
+                PacketInstance p;
+                p.setValue("protocol", data->protocolVersion);
+                p.setValue("key", data->encryptionKey);
+                c.net->SendPacket(&p, "encryption request");
+            }
+        }
+    }
 }

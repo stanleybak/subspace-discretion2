@@ -1,6 +1,7 @@
 #include "Packets.h"
 #include <map>
 #include <set>
+using namespace std;
 
 enum FieldType
 {
@@ -35,11 +36,6 @@ struct PacketsData
     PacketsData(Client& c) : c(c) {}
 
     Client& c;
-    u8 CORE_HEADER = 0x00;
-    u8 RELIABLE_HEADER = 0x03;
-
-    multimap<string, std::function<void(const PacketInstance*)>> nameToFunctionMap;
-    map<u16, map<u16, string>> incomingPacketIdToLengthToNameMap;  // second one is a length map
 
     map<string, PacketTemplate> incomingOrCoreNameToTemplateMap;
     map<string, PacketTemplate> outgoingNameToTemplateMap;
@@ -89,7 +85,7 @@ struct PacketsData
         return rv;
     }
 
-    void TemplatePacketRecevied(u8* data, int len)
+    const char* PopulatePacketInstance(PacketInstance* store, u8* data, int len)
     {
         // populate the packet instance and call the handlers
         u16 type = data[0] == CORE_HEADER ? (u16)data[1] : ((u16)data[0]) << 8;
@@ -501,3 +497,7 @@ Packets::Packets(Client& c) : Module(c), data(make_shared<PacketsData>(c))
 Packets::~Packets()
 {
 }
+
+const char* Packets::PopulatePacketInstance(PacketInstance* store, u8* data, int len)
+{
+    return data->PopulatePacketInstance(store, data, len);

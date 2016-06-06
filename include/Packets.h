@@ -34,6 +34,9 @@ class Packets : public Module
     Packets(Client& c);
     ~Packets();
 
+    // returns the template name
+    const char* PopulatePacketInstance(PacketInstance* store, u8* data, int len);
+
    private:
     shared_ptr<PacketsData> data;
 };

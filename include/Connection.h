@@ -18,6 +18,8 @@ class Connection : public Module
     ~Connection();
 
     void Connect(const char* name, const char* pw, const char* hostname, u16 port);
+    void Disconnect();
+    void UpdateConnectionStatus(i32 mills);
 
    private:
     shared_ptr<ConnectionData> data;
