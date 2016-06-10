@@ -26,7 +26,22 @@ struct NetData
     multimap<string, std::function<void(const PacketInstance*)>> nameToFunctionMap;
     multimap<PacketType, std::function<void(u8*, i32)>> rawPackedHandlers;
 
-    NetData(Client& c) : c(c), coreHandlers(c) {}
+    NetData(Client& c) : c(c), coreHandlers(c)
+    {
+        AddRawPacketHandler(make_pair(true, 0x03), coreHandlers.handleReliablePacket);
+        AddRawPacketHandler(make_pair(true, 0x0E), coreHandlers.handleClusterPacket);
+        AddRawPacketHandler(make_pair(true, 0x0A), coreHandlers.handleStream);
+
+        c.net->AddPacketHandler("reliable response", coreHandlers.handleReliableReponse);
+        c.net->AddPacketHandler("cancel stream response", coreHandlers.handleCancelStreamResponse);
+
+        c.net->AddPacketHandler("sync pong", coreHandlers.handleSyncPong);
+        c.net->AddPacketHandler("sync request", coreHandlers.handleSyncRequest);
+        c.net->AddPacketHandler("keep alive", coreHandlers.handleKeepAlive);
+        /*c.net->AddPacketHandler("encryption response", coreHandlers.handleEncryptionResponse);
+        c.net->AddPacketHandler("password response", coreHandlers.handlePasswordResponse);
+        c.net->AddPacketHandler("disconnect", coreHandlers.handleDisconnect);*/
+    }
 
     ~NetData()
     {
@@ -293,7 +308,7 @@ struct NetData
     // generic raw handler for all template functions which have handler function
     std::function<void(u8*, i32)> templatePacketRecevied = [this](u8* data, i32 len)
     {
-        PacketInstance store("temp");
+        PacketInstance store(c, "temp");
         c.packets->PopulatePacketInstance(&store, data, len);
 
         if (store.templateName != "temp")
@@ -311,21 +326,6 @@ struct NetData
 
 Net::Net(Client& c) : Module(c), data(make_shared<NetData>(c))
 {
-    printf("Net.cpp todo: Add these in the right places!\n");
-    /*registerPacketHandler(true, 0x03, handleReliablePacket);
-    registerPacketHandler(true, 0x0E, handleClusterPacket);
-    registerPacketHandler(true, 0x0A, handleStream);
-
-    // parsed
-    c.packets->regPacketFunc("cancel stream response", handleCancelStreamResponse);
-    mm->net.regPacketFunc("sync pong", handleSyncPong);
-    mm->net.regPacketFunc("sync request", handleSyncRequest);
-    mm->net.regPacketFunc("keep alive", handleKeepAlive);
-    mm->net.regPacketFunc("reliable response", handleReliableReponse);
-    mm->net.regPacketFunc("encryption response", handleEncryptionResponse);
-    mm->net.regPacketFunc("password response", handlePasswordResponse);
-    mm->net.regPacketFunc("disconnect", handleDisconnect);
-    */
 }
 
 Net::~Net()
@@ -334,11 +334,14 @@ Net::~Net()
 
 bool Net::NewConnection(const char* hostname, u16 port)
 {
-    bool rv = data->SetupSocket(hostname, port);
-
-    if (rv)
+    if (!c.connection->isDisconnected())
     {
+        c.log->LogError(
+            "Net::NewConnection() called, but connection is still active (will lead to "
+            "dirty disconnect). Use Connection::Disconnect() first.");
     }
+
+    bool rv = data->SetupSocket(hostname, port);
 
     return rv;
 }
@@ -385,4 +388,9 @@ void Net::SendPacket(PacketInstance* packet)
 void Net::SendReliablePacket(PacketInstance* packet)
 {
     data->SendPacket(packet, true);
+}
+
+void Net::PumpPacket(u8* bytes, i32 len)
+{
+    data->PumpPacket(bytes, len);
 }

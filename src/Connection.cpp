@@ -143,16 +143,16 @@ struct ConnectionData
             // in the future we might do something with the client key
 
             // send the password packet
-            PacketInstance packet("password request");
+            PacketInstance packet(c, "password request");
 
-            packet.setValue("name", username.c_str());
-            packet.setValue("password", password.c_str());
-            packet.setValue("client version", clientVersion);
+            packet.SetValue("name", username.c_str());
+            packet.SetValue("password", password.c_str());
+            packet.SetValue("client version", clientVersion);
 
             c.net->SendReliablePacket(&packet);
 
-            PacketInstance p2("sync ping");
-            p2.setValue("timestamp", SDL_GetTicks());
+            PacketInstance p2(c, "sync ping");
+            p2.SetValue("timestamp", SDL_GetTicks());
             c.net->SendPacket(&p2);
 
             state = STATUS_SENT_PASSWORD;
@@ -166,9 +166,9 @@ struct ConnectionData
 
     void SendConnectRequest()
     {
-        PacketInstance p("encryption request");
-        p.setValue("protocol", protocolVersion);
-        p.setValue("key", encryptionKey);
+        PacketInstance p(c, "encryption request");
+        p.SetValue("protocol", protocolVersion);
+        p.SetValue("key", encryptionKey);
         c.net->SendPacket(&p);
 
         // reset variables
@@ -232,7 +232,7 @@ void Connection::Disconnect()
     {
         data->state = data->STATUS_NOT_CONNECTED;
 
-        PacketInstance pi("disconnect");
+        PacketInstance pi(c, "disconnect");
         c.net->SendPacket(&pi);
 
         c.net->DisconnectSocket();
@@ -259,9 +259,9 @@ void Connection::UpdateConnectionStatus(i32 ms)
                 c.log->LogDrivel("Sending Encryption Request #%d", data->numberEncryptionRequests);
                 data->nextEncryptionRequestMs = data->connectRetryMs;
 
-                PacketInstance p("encryption request");
-                p.setValue("protocol", data->protocolVersion);
-                p.setValue("key", data->encryptionKey);
+                PacketInstance p(c, "encryption request");
+                p.SetValue("protocol", data->protocolVersion);
+                p.SetValue("key", data->encryptionKey);
                 c.net->SendPacket(&p);
             }
         }

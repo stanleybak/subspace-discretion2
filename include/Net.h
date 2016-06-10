@@ -29,6 +29,8 @@ class Net : public Module
     void SendPacket(PacketInstance* packet);
     void SendReliablePacket(PacketInstance* packet);
 
+    void PumpPacket(u8* data, i32 len);
+
     // periodically called
     void ReceivePackets(i32 ms);
     void SendPackets(i32 ms);

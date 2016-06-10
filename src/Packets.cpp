@@ -4,6 +4,51 @@
 #include <set>
 using namespace std;
 
+void PutU32(u8* loc, u32 data)
+{
+    for (int x = 0; x < 4; ++x)
+    {
+        loc[x] = data % 256;
+        data /= 256;
+    }
+}
+
+void PutU16(u8* loc, u16 data)
+{
+    for (int x = 0; x < 2; ++x)
+    {
+        loc[x] = data % 256;
+        data /= 256;
+    }
+}
+
+// extract a little endian u32
+u32 GetU32(u8* loc)
+{
+    u32 rv = 0;
+
+    for (int x = 3; x >= 0; --x)
+    {
+        rv *= 256;
+        rv += loc[x];
+    }
+
+    return rv;
+}
+
+u16 GetU16(u8* loc)
+{
+    u16 rv = 0;
+
+    for (int x = 1; x >= 0; --x)
+    {
+        rv *= 256;
+        rv += loc[x];
+    }
+
+    return rv;
+}
+
 enum FieldType
 {
     FT_INT,
@@ -167,11 +212,11 @@ struct PacketsData
                             }
 
                             if (te->length == 1)
-                                store->setValue(te->name.c_str(), data[curByte]);
+                                store->SetValue(te->name.c_str(), data[curByte]);
                             else if (te->length == 2)
-                                store->setValue(te->name.c_str(), GetU16(data + curByte));
+                                store->SetValue(te->name.c_str(), GetU16(data + curByte));
                             else if (te->length == 4)
-                                store->setValue(te->name.c_str(), GetU32(data + curByte));
+                                store->SetValue(te->name.c_str(), GetU32(data + curByte));
 
                             curByte += te->length;
                         }
@@ -207,7 +252,7 @@ struct PacketsData
                                     value += data[curByte + count];
                             }
 
-                            store->setValue(te->name.c_str(), value.c_str());
+                            store->SetValue(te->name.c_str(), value.c_str());
                             curByte += te->length;
                         }
                         else if (te->type == FT_NTSTRING)
@@ -246,7 +291,7 @@ struct PacketsData
                             if (!ok)  // we errored reading in the string
                                 break;
 
-                            store->setValue(te->name.c_str(), value.c_str());
+                            store->SetValue(te->name.c_str(), value.c_str());
                         }
                         else if (te->type == FT_RAW)
                         {
@@ -255,7 +300,7 @@ struct PacketsData
                             for (; curByte < len; ++curByte)
                                 bytes.push_back(data[curByte]);
 
-                            store->setValue(te->name.c_str(), &bytes);
+                            store->SetValue(te->name.c_str(), &bytes);
                         }
                     }
 
@@ -606,7 +651,7 @@ struct PacketsData
             }
             else if (te->type == FT_INT)
             {
-                int val = GetPacketInstanceValue(pi, fieldName->c_str());
+                int val = pi->GetValue(fieldName->c_str());
 
                 if (i->length == 1)
                     (*data)[cur] = val;
@@ -619,8 +664,7 @@ struct PacketsData
             }
             else if (te->type == FT_STRING)
             {
-                GetPacketInstanceValue(pi, fieldName->c_str(), (char*)(&((*data)[0]) + cur),
-                                       i->length);
+                pi->GetValue(fieldName->c_str(), (char*)(&((*data)[0]) + cur), i->length);
 
                 cur += i->length;
             }
@@ -638,7 +682,7 @@ struct PacketsData
             else if (te->type == FT_RAW)
             {
                 int rawlen;
-                const u8* rawdata = GetPacketInstanceValue(pi, fieldName->c_str(), &rawlen);
+                const u8* rawdata = pi->GetValue(fieldName->c_str(), &rawlen);
 
                 if (rawdata != nullptr)
                 {
@@ -666,109 +710,6 @@ struct PacketsData
 
             (*data)[checksumOffset] = ck;
         }
-    }
-
-    void PutU32(u8* loc, u32 data)
-    {
-        for (int x = 0; x < 4; ++x)
-        {
-            loc[x] = data % 256;
-            data /= 256;
-        }
-    }
-
-    void PutU16(u8* loc, u16 data)
-    {
-        for (int x = 0; x < 2; ++x)
-        {
-            loc[x] = data % 256;
-            data /= 256;
-        }
-    }
-
-    // extract a little endian u32
-    u32 GetU32(u8* loc)
-    {
-        u32 rv = 0;
-
-        for (int x = 3; x >= 0; --x)
-        {
-            rv *= 256;
-            rv += loc[x];
-        }
-
-        return rv;
-    }
-
-    u16 GetU16(u8* loc)
-    {
-        u16 rv = 0;
-
-        for (int x = 1; x >= 0; --x)
-        {
-            rv *= 256;
-            rv += loc[x];
-        }
-
-        return rv;
-    }
-
-    int GetPacketInstanceValue(const PacketInstance* pi,
-                               const char* type) const  // get a numerical value
-    {
-        int rv = 0;
-
-        map<string, int>::const_iterator i = pi->intValues.find(type);
-
-        if (i != pi->intValues.end())
-        {
-            rv = i->second;
-        }
-        else
-            c.log->LogError(
-                "GetPacketInstanceValue for int data was not found! returning 0; type = '%s'",
-                type);
-
-        return rv;
-    }
-
-    void GetPacketInstanceValue(const PacketInstance* pi, const char* type, char* store,
-                                int len) const  // get a c-string value
-    {
-        map<string, string>::const_iterator i = pi->cStrValues.find(type);
-
-        // pad storage with 0's
-        for (int x = 0; x < len; ++x)
-            store[x] = 0;
-
-        if (i != pi->cStrValues.end())
-            snprintf(store, len, "%s", i->second.c_str());
-        else
-            c.log->LogError(
-                "GetPacketInstanceValue for c_string data was not found! returning empty string; "
-                "type = '%s'",
-                type);
-    }
-
-    const u8* GetPacketInstanceValue(const PacketInstance* pi, const char* type, int* rawLen)
-    {
-        const u8* rv = nullptr;
-        *rawLen = 0;
-
-        map<string, vector<u8>>::const_iterator i = pi->rawValues.find(type);
-
-        if (i != pi->rawValues.end())
-        {
-            rv = &(i->second[0]);  // hmm... assumes vector is of type u8* internally, not ideal
-            *rawLen = (int)i->second.size();
-        }
-        else
-            c.log->LogError(
-                "GetPacketInstanceValue for raw data was not found! returning null pointer; type = "
-                "'%s'",
-                type);
-
-        return rv;
     }
 };
 
@@ -798,4 +739,59 @@ bool Packets::CheckPacket(PacketInstance* pi, bool reliable)
 void Packets::PacketTemplateToRaw(PacketInstance* packet, bool reliable, vector<u8>* rawData)
 {
     data->PacketTemplateToRaw(packet, reliable, rawData);
+}
+
+int PacketInstance::GetValue(const char* type) const
+{
+    int rv = 0;
+
+    map<string, int>::const_iterator i = intValues.find(type);
+
+    if (i != intValues.end())
+    {
+        rv = i->second;
+    }
+    else
+        c.log->LogError(
+            "GetPacketInstanceValue for int data was not found! returning 0; type = '%s'", type);
+
+    return rv;
+}
+
+void PacketInstance::GetValue(const char* type, char* store, int len) const
+{
+    map<string, string>::const_iterator i = cStrValues.find(type);
+
+    // pad storage with 0's
+    for (int x = 0; x < len; ++x)
+        store[x] = 0;
+
+    if (i != cStrValues.end())
+        snprintf(store, len, "%s", i->second.c_str());
+    else
+        c.log->LogError(
+            "GetPacketInstanceValue for c_string data was not found! returning empty string; "
+            "type = '%s'",
+            type);
+}
+
+const u8* PacketInstance::GetValue(const char* type, int* rawLen) const
+{
+    const u8* rv = nullptr;
+    *rawLen = 0;
+
+    map<string, vector<u8>>::const_iterator i = rawValues.find(type);
+
+    if (i != rawValues.end())
+    {
+        rv = &(i->second[0]);  // hmm... assumes vector is of type u8* internally, not ideal
+        *rawLen = (int)i->second.size();
+    }
+    else
+        c.log->LogError(
+            "GetPacketInstanceValue for raw data was not found! returning null pointer; type = "
+            "'%s'",
+            type);
+
+    return rv;
 }

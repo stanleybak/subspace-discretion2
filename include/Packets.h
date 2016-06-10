@@ -12,20 +12,30 @@
 
 struct PacketsData;
 
+void PutU32(u8* loc, u32 data);
+void PutU16(u8* loc, u16 data);
+u32 GetU32(u8* loc);
+u16 GetU16(u8* loc);
+
+typedef pair<bool, u8> PacketType;  // isCore, id
+
 struct PacketInstance
 {
-    PacketInstance(const char* templateName) : templateName(templateName) {}
-    void setValue(const char* type, i32 value) { intValues[type] = value; }
-    void setValue(const char* type, const char* value) { cStrValues[type] = value; }
-    void setValue(const char* type, const vector<u8>* value) { rawValues[type] = *value; }
+    PacketInstance(Client& c, const char* templateName) : c(c), templateName(templateName) {}
+    void SetValue(const char* type, i32 value) { intValues[type] = value; }
+    void SetValue(const char* type, const char* value) { cStrValues[type] = value; }
+    void SetValue(const char* type, const vector<u8>* value) { rawValues[type] = *value; }
 
+    int GetValue(const char* type) const;
+    void GetValue(const char* type, char* store, int len) const;
+    const u8* GetValue(const char* type, int* rawLen) const;
+
+    Client& c;
     string templateName;
     map<string, i32> intValues;
     map<string, string> cStrValues;
     map<string, vector<u8> > rawValues;
 };
-
-typedef pair<bool, u8> PacketType;  // isCore, id
 
 class Packets : public Module
 {
