@@ -1,59 +1,19 @@
 #include "Net.h"
 #include "Chat.h"
-#include <string.h>
-#include <list>
+#include "NetCoreHandlers.h"
+#include "Connection.h"
+
 #include "SDL2/SDL_net.h"
+#include <list>
 
 struct NetData
 {
-    struct QueuedReliablePacket
-    {
-        QueuedReliablePacket(vector<u8>* _data, u32 _ackId, i32 resendMs)
-        {
-            data = *_data;
-            ackId = _ackId;
-
-            timesSent = 1;
-            msUntilNextSend = resendMs;
-        }
-
-        u32 ackId;
-        vector<u8> data;
-
-        i32 msUntilNextSend;
-        i32 timesSent;
-    };
-
-    struct StreamData
-    {
-        StreamData() { reset(); };
-        void reset()
-        {
-            data.clear();
-            len = -1;
-            pos = 0;
-            abortFunc = nullptr;
-            progressFunc = nullptr;
-        };
-
-        vector<u8> data;
-        i32 len = -1;
-        int pos = 0;
-
-        std::function<void()> abortFunc;
-        std::function<void(i32, i32)> progressFunc;  // gotBytes, totalBytes
-    };
-
-    const i32 MAX_BYTES_PER_PACKET = 512;
-    const u8 CORE_HEADER = 0x00;
-    const u8 RELIABLE_HEADER = 0x03;
+    const u32 MAX_BYTES_PER_PACKET = 512;
+    const u32 MAX_CLUSTER_SIZE = 256;
 
     Client& c;
+    NetCoreHanders coreHandlers;
 
-    i32 maxStreamLen = c.cfg->GetInt("Net", "Max File Size", 4194304);
-    i32 reliableResendTime = c.cfg->GetInt("Net", "Reliable Resend Mills", 300);
-    i32 reliableWarnRetries = c.cfg->GetInt("Net", "Reliable Warn Retries", 5);
-    i32 reliableMaxRetries = c.cfg->GetInt("Net", "Reliable Max Retries", 10);
     i32 maxTimeWithoutData = c.cfg->GetInt("Net", "Max Time Without Data", 10);
 
     UDPsocket sock = nullptr;
@@ -62,19 +22,11 @@ struct NetData
     i32 lastData = 0;
 
     vector<vector<u8>> packetQueue;
-    StreamData streamDataIn;
-    list<QueuedReliablePacket> relPackets;
-    map<u32, vector<u8>> backloggedPackets;
-    u32 nextIncomingReliableId = 0;
-    u32 nextOutgoingReliableId = 0;
 
     multimap<string, std::function<void(const PacketInstance*)>> nameToFunctionMap;
-    map<u16, map<u16, string>> incomingPacketIdToLengthToNameMap;  // second one is a length map
+    multimap<PacketType, std::function<void(u8*, i32)>> rawPackedHandlers;
 
-    multimap<u8, std::function<void(u8*, i32)>> coreHandlerFuncMap;
-    multimap<u8, std::function<void(u8*, i32)>> gameHandlerFuncMap;
-
-    NetData(Client& c) : c(c) {}
+    NetData(Client& c) : c(c), coreHandlers(c) {}
 
     ~NetData()
     {
@@ -105,11 +57,7 @@ struct NetData
         }
 
         // reset state of reliable packets
-        nextIncomingReliableId = 0;
-        nextOutgoingReliableId = 0;
-
-        relPackets.clear();
-        backloggedPackets.clear();
+        coreHandlers.Reset();
     }
 
     // returns true if it was setup correctly
@@ -159,57 +107,13 @@ struct NetData
         return rv;
     }
 
-    void SetStatus(const char* message) { c.chat->InternalMessage(message); }
-
-    void ResendLostReliablePackets(i32 ms)
+    void ProcessRawTypedPacket(PacketType type, u8* data, int len)
     {
-        for (list<QueuedReliablePacket>::iterator i = relPackets.begin(); i != relPackets.end();
-             ++i)
-        {
-            i->msUntilNextSend -= ms;
-
-            if (i->msUntilNextSend < 0)  // resend it
-            {
-                ++(i->timesSent);
-
-                if (i->timesSent >= reliableMaxRetries)
-                {
-                    // too many reliable reties; disconnect
-                    c.connection->Disconnect();
-
-                    SetStatus("You have disconnected from the server. (too many reliable retries)");
-                }
-                else
-                {
-                    i->msUntilNextSend = reliableResendTime;
-                    packetQueue.push_back(i->data);
-
-                    if (i->timesSent >= reliableWarnRetries)
-                    {
-                        char buf[128];
-
-                        snprintf(buf, sizeof(buf),
-                                 "Warning: Resending reliable packet. Attempt: %i", i->timesSent);
-                        c.chat->InternalMessage(buf);
-                    }
-                }
-            }
-        }
-    }
-
-    void ProcessPacket(bool core, u8 type, u8* data, int len)
-    {
-        pair<multimap<u8, void (*)(u8*, int)>::iterator, multimap<u8, void (*)(u8*, int)>::iterator>
-            range;
-
-        if (core)
-            range = coreHandlerFuncMap.equal_range(type);
-        else
-            range = gameHandlerFuncMap.equal_range(type);
+        auto range = rawPackedHandlers.equal_range(type);
 
         if (range.first == range.second)  // no handlers
-            c.log->LogError("Packet received of type %02x (%s) len = %i, but no handler exists!",
-                            type, core ? "core packet" : "non-core packet", len);
+            c.log->LogError("Packet received of type %04x (%s) len = %i, but no handler exists!",
+                            type.second, type.first ? "core packet" : "non-core packet", len);
 
         // call all of the handlers for this type
         for (; range.first != range.second; ++range.first)
@@ -218,29 +122,25 @@ struct NetData
 
     void PumpPacket(u8* data, int len)
     {
-        if (len > 0)
+        if (len < 1 || (data[0] == CORE_HEADER && len < 2))
+            c.log->LogError("pumpPacket's packet len invalid");
+        else
         {
-            int type = -1;
-            bool core = false;
+            PacketType type;
 
-            if (data[0] == 0x00)  // core packet
+            if (data[0] == CORE_HEADER)  // core packet
             {
-                if (len > 1)
-                {
-                    core = true;
-                    type = data[1];
-                }
-                else
-                    LOG_ERROR("core packet with length < 2");
+                type.first = true;
+                type.second = data[1];
             }
             else
-                type = data[0];
+            {
+                type.first = false;
+                type.second = data[0];
+            }
 
-            if (type != -1)
-                ProcessPacket(core, (u8)type, data, len);
+            ProcessRawTypedPacket(type, data, len);
         }
-        else
-            c.log->LogError("pumpPacket's packetlen <= 0");
     }
 
     void PollSocket(i32 ms)
@@ -257,10 +157,7 @@ struct NetData
 
         if (now - lastData > maxTimeWithoutData)  // we should disconnect, no data
         {
-            PacketInstance pi;
-            c.packets->SendPacket(&pi, "disconnect");
-
-            SetStatus("You have disconnected from the server (no data coming in).");
+            c.chat->InternalMessage("You have disconnected from the server (no data coming in).");
             c.connection->Disconnect();
         }
     }
@@ -269,35 +166,152 @@ struct NetData
     {
         pair<string, std::function<void(const PacketInstance*)>> toInsert(name, func);
 
-        nameToFunctionMap.insert(toInsert);
-
-        PacketTemplate* pt = GetTemplate(name, false);
-
-        if (pt)
+        if (nameToFunctionMap.find(name) == nameToFunctionMap.end())
         {
-            u16 type = pt->isCore ? pt->type : (pt->type << 8);
+            PacketType type = c.packets->GetPacketType(name, false);
+            rawPackedHandlers.insert(make_pair(type, templatePacketRecevied));
+        }
 
-            if (listeningForTypes.find(type) == listeningForTypes.end())
-            {  // insert and register
-                c.net->RegisterPacketHandler(pt->isCore, pt->type, templatePacketRecevied);
+        nameToFunctionMap.insert(toInsert);
+    }
 
-                listeningForTypes.insert(type);
-            }
+    void AddRawPacketHandler(PacketType type, std::function<void(u8*, i32)> func)
+    {
+        rawPackedHandlers.insert(make_pair(type, func));
+    }
+
+    void SendPacket(PacketInstance* packet, bool reliable)
+    {
+        if (c.packets->CheckPacket(packet, reliable))
+        {
+            vector<u8> rawData;
+
+            c.packets->PacketTemplateToRaw(packet, reliable, &rawData);
+
+            // reliable messages need an id assigned and must be put in a resend queue
+            if (reliable)
+                coreHandlers.FinalizeReliablePacket(&rawData);
+
+            // put it in the vector of stuff to send
+            packetQueue.push_back(rawData);
         }
     }
 
-    void AddRawPacketHandler(bool core, u8 type, std::function<void(u8*, i32)> func)
+    void SendBinaryPacket(UDPpacket* p)
     {
-        if (core)
-            coreHandlerFuncMap.insert(pair<u8, void (*)(u8*, int)>(type, func));
-        else
-            gameHandlerFuncMap.insert(pair<u8, void (*)(u8*, int)>(type, func));
+        // statsSentRecently += p->len;
+        // statsSentTotal += p->len;
+
+        if (!SDLNet_UDP_Send(sock, channel, p))
+            c.log->LogError("SDLNet_UDP_Send: %s\n", SDLNet_GetError());
     }
+
+    void FlushRawOutgoingPackets()
+    {
+        // cluster as many packets as we can and send them
+        unsigned int numPackets = 0;
+        unsigned int curByte = 2;
+        packet->len = 2;
+        packet->data[0] = CORE_HEADER;
+        packet->data[1] = CLUSTER_HEADER;
+
+        for (unsigned int x = 0; x < packetQueue.size(); ++x)
+        {
+            // for a packet to be clusterable, size must be < 256
+            if (packetQueue[x].size() < MAX_CLUSTER_SIZE)  // cluster it
+            {
+                if (curByte + packetQueue[x].size() + 1 >=
+                    MAX_BYTES_PER_PACKET)  // if we can't append the next cluster
+                {                          // send it and setup for the next clustered packet
+                    SendBinaryPacket(packet);
+
+                    curByte = 2;
+                    packet->len = 2;
+                    packet->data[0] = CORE_HEADER;
+                    packet->data[1] = CLUSTER_HEADER;
+                    numPackets = 0;
+                }
+
+                packet->len += (int)(1 + packetQueue[x].size());
+                packet->data[curByte++] = (u8)packetQueue[x].size();
+
+                for (unsigned int c = 0; c < packetQueue[x].size(); ++c)
+                    packet->data[curByte++] = packetQueue[x][c];
+
+                packetQueue[x].clear();
+                ++numPackets;
+            }
+        }
+
+        // flush the buffer (if we have any buffered packets)
+        if (numPackets > 1)
+        {  // send the clustered version
+            SendBinaryPacket(packet);
+        }
+        else if (numPackets == 1)
+        {  // send the non-clustered version
+            for (int c = 0; c < packet->len - 3; ++c)
+                packet->data[c] = packet->data[c + 3];
+
+            packet->len -= 3;
+            SendBinaryPacket(packet);
+        }
+
+        // finally, send all the packets we couldn't cluster (because size was too large, perhaps)
+        for (unsigned int x = 0; x < packetQueue.size(); ++x)
+        {
+            if (packetQueue[x].size() > MAX_BYTES_PER_PACKET)
+            {
+                bool isCore = false;
+                u8 id = packetQueue[x][0];
+
+                if (packetQueue[x][0] == CORE_HEADER)
+                {
+                    isCore = true;
+                    id = packetQueue[x][1];
+                }
+
+                c.log->LogError(
+                    "queued packet's size was > MAX_BYTES_PER_PACKET, dropping packet."
+                    " Id was 0x%02x (%s).",
+                    id, isCore ? "core packet" : "non-core packet");
+            }
+            else if (packetQueue[x].size() > 0)  // we haven't sent it already
+            {
+                packet->len = (int)packetQueue[x].size();
+
+                for (unsigned int c = 0; c < packetQueue[x].size(); ++c)
+                    packet->data[x] = packet->data[c];
+
+                SendBinaryPacket(packet);
+            }
+        }
+
+        packetQueue.clear();
+    }
+
+    // generic raw handler for all template functions which have handler function
+    std::function<void(u8*, i32)> templatePacketRecevied = [this](u8* data, i32 len)
+    {
+        PacketInstance store("temp");
+        c.packets->PopulatePacketInstance(&store, data, len);
+
+        if (store.templateName != "temp")
+        {
+            // lookup the template handler
+            pair<multimap<string, std::function<void(const PacketInstance*)>>::iterator,
+                 multimap<string, std::function<void(const PacketInstance*)>>::iterator> range =
+                nameToFunctionMap.equal_range(store.templateName);
+
+            for (; range.first != range.second; ++range.first)
+                range.first->second(&store);
+        }
+    };
 };
 
 Net::Net(Client& c) : Module(c), data(make_shared<NetData>(c))
 {
-    // todo: figure out the ordering on this
+    printf("Net.cpp todo: Add these in the right places!\n");
     /*registerPacketHandler(true, 0x03, handleReliablePacket);
     registerPacketHandler(true, 0x0E, handleClusterPacket);
     registerPacketHandler(true, 0x0A, handleStream);
@@ -334,7 +348,12 @@ void Net::DisconnectSocket()
     // if we're connected, send a disconnect packet
     if (data->packet != nullptr)
     {
-        c.connection->Disconnect();
+        if (c.connection->isDisconnected())
+            c.log->LogError(
+                "Net::DisconnectSocket() called, but connection is still active (will lead to "
+                "dirty disconnect). Use Connection::Disconnect() instead.");
+
+        data->FlushRawOutgoingPackets();
     }
 
     data->ResetConnectionResources();
@@ -343,14 +362,14 @@ void Net::DisconnectSocket()
 void Net::ReceivePackets(i32 ms)
 {
     if (data->sock != nullptr)
-    {
         data->PollSocket(ms);
-    }
 }
 
 void Net::SendPackets(i32 ms)
 {
-    data->ResendLostReliablePackets(ms);
+    data->coreHandlers.ResendReliablePackets(ms, &data->packetQueue);
+
+    data->FlushRawOutgoingPackets();
 }
 
 void Net::AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func)
@@ -358,10 +377,12 @@ void Net::AddPacketHandler(const char* name, std::function<void(const PacketInst
     data->AddPacketHandler(name, func);
 }
 
-void Net::SendPacket(PacketInstance* packet, const char* templateName)
+void Net::SendPacket(PacketInstance* packet)
 {
+    data->SendPacket(packet, false);
 }
 
-void Net::SendReliablePacket(PacketInstance* packet, const char* templateName)
+void Net::SendReliablePacket(PacketInstance* packet)
 {
+    data->SendPacket(packet, true);
 }

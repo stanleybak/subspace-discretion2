@@ -17,7 +17,9 @@ class Connection : public Module
     Connection(Client& c);
     ~Connection();
 
+    const char* GetPlayerName();
     void Connect(const char* name, const char* pw, const char* hostname, u16 port);
+    bool isDisconnected();  // are we completely disconnected (not even trying to connect)
     void Disconnect();
     void UpdateConnectionStatus(i32 mills);
 

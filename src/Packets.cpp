@@ -1,4 +1,5 @@
 #include "Packets.h"
+#include "Net.h"
 #include <map>
 #include <set>
 using namespace std;
@@ -40,9 +41,7 @@ struct PacketsData
     map<string, PacketTemplate> incomingOrCoreNameToTemplateMap;
     map<string, PacketTemplate> outgoingNameToTemplateMap;
 
-    // the types of packets our template functions is already listening for
-    set<u16> listeningForTypes;
-    set<u8> ignoreGamePackets;
+    map<u16, map<u16, string>> incomingPacketIdToLengthToNameMap;  // second one is a length map
 
     i32 GetPacketLength(PacketInstance* pi, PacketTemplate* pt, bool reliable)
     {
@@ -85,8 +84,22 @@ struct PacketsData
         return rv;
     }
 
-    const char* PopulatePacketInstance(PacketInstance* store, u8* data, int len)
+    PacketType GetPacketType(const char* templateName, bool isOutgoing)
     {
+        PacketTemplate* t = GetTemplate(templateName, isOutgoing);
+
+        PacketType rv;
+
+        rv.first = t->isCore;
+        rv.second = t->type;
+
+        return rv;
+    }
+
+    void PopulatePacketInstance(PacketInstance* store, u8* data, int len)
+    {
+        const char* templateName = nullptr;
+
         // populate the packet instance and call the handlers
         u16 type = data[0] == CORE_HEADER ? (u16)data[1] : ((u16)data[0]) << 8;
         map<u16, map<u16, string>>::iterator j = incomingPacketIdToLengthToNameMap.find(type);
@@ -130,7 +143,6 @@ struct PacketsData
                 else
                 {
                     // convert the raw data to a PacketInstance
-                    PacketInstance pi;
 
                     int curByte = pt->isCore ? 2 : 1;  // skip the header
                     bool ok = true;
@@ -155,11 +167,11 @@ struct PacketsData
                             }
 
                             if (te->length == 1)
-                                pi.setValue(te->name.c_str(), data[curByte]);
+                                store->setValue(te->name.c_str(), data[curByte]);
                             else if (te->length == 2)
-                                pi.setValue(te->name.c_str(), GetU16(data + curByte));
+                                store->setValue(te->name.c_str(), GetU16(data + curByte));
                             else if (te->length == 4)
-                                pi.setValue(te->name.c_str(), GetU32(data + curByte));
+                                store->setValue(te->name.c_str(), GetU32(data + curByte));
 
                             curByte += te->length;
                         }
@@ -195,7 +207,7 @@ struct PacketsData
                                     value += data[curByte + count];
                             }
 
-                            pi.setValue(te->name.c_str(), value.c_str());
+                            store->setValue(te->name.c_str(), value.c_str());
                             curByte += te->length;
                         }
                         else if (te->type == FT_NTSTRING)
@@ -234,7 +246,7 @@ struct PacketsData
                             if (!ok)  // we errored reading in the string
                                 break;
 
-                            pi.setValue(te->name.c_str(), value.c_str());
+                            store->setValue(te->name.c_str(), value.c_str());
                         }
                         else if (te->type == FT_RAW)
                         {
@@ -243,7 +255,7 @@ struct PacketsData
                             for (; curByte < len; ++curByte)
                                 bytes.push_back(data[curByte]);
 
-                            pi.setValue(te->name.c_str(), &bytes);
+                            store->setValue(te->name.c_str(), &bytes);
                         }
                     }
 
@@ -257,15 +269,7 @@ struct PacketsData
                         LogPacketError("TEMPLATE MISMATCH (too much)", data, len);
                     }
                     else if (ok)
-                    {
-                        // ok good enough, now call the appropriate functions
-                        pair<multimap<string, std::function<void(const PacketInstance*)>>::iterator,
-                             multimap<string, std::function<void(const PacketInstance*)>>::iterator>
-                            range = nameToFunctionMap.equal_range(i->second);
-
-                        for (; range.first != range.second; ++range.first)
-                            range.first->second(&pi);
-                    }
+                        store->templateName = templateName;
                 }
             }
         }
@@ -286,16 +290,17 @@ struct PacketsData
     }
 
     // loads it if necessary
-    PacketTemplate* GetTemplate(const char* type, bool outgoingPacket)
+    PacketTemplate* GetTemplate(const char* templateName, bool outgoingPacket)
     {
-        PacketTemplate* rv = 0;
-        map<string, PacketTemplate>::iterator i = incomingOrCoreNameToTemplateMap.find(type);
+        PacketTemplate* rv = nullptr;
+        map<string, PacketTemplate>::iterator i =
+            incomingOrCoreNameToTemplateMap.find(templateName);
 
         bool found = (i != incomingOrCoreNameToTemplateMap.end());
 
         if (!found && outgoingPacket)
         {
-            i = outgoingNameToTemplateMap.find(type);
+            i = outgoingNameToTemplateMap.find(templateName);
 
             found = (i != outgoingNameToTemplateMap.end());
         }
@@ -306,15 +311,15 @@ struct PacketsData
             char buf[256];
             u16 len = 1;
 
-            snprintf(buf, sizeof(buf), "%s Field Count", type);
+            snprintf(buf, sizeof(buf), "%s Field Count", templateName);
             i32 count = c.cfg->GetInt(cat, buf, -1);
 
-            snprintf(buf, sizeof(buf), "%s Type", type);
+            snprintf(buf, sizeof(buf), "%s Type", templateName);
             i32 packetId = c.cfg->GetInt(cat, buf, -1);
 
             bool core = false;
 
-            snprintf(buf, sizeof(buf), "%s iscore", type);
+            snprintf(buf, sizeof(buf), "%s iscore", templateName);
             core = c.cfg->GetInt(cat, buf, 0) != 0;
 
             if (core)
@@ -323,9 +328,9 @@ struct PacketsData
             if (packetId < 1 || packetId > 255)
                 c.log->LogError(
                     "%s::%s Type is not a valid setting (is the packet defined in the conf?)", cat,
-                    type);
+                    templateName);
             else if (count < 0)
-                c.log->LogError("%s::%s Field Count is not a valid setting", cat, type);
+                c.log->LogError("%s::%s Field Count is not a valid setting", cat, templateName);
             else
             {
                 PacketTemplate pt;
@@ -334,7 +339,7 @@ struct PacketsData
                 int x;
                 for (x = 0; x < count; ++x)
                 {
-                    snprintf(buf, sizeof(buf), "%s Field %i Name", type, x);
+                    snprintf(buf, sizeof(buf), "%s Field %i Name", templateName, x);
                     const char* fieldName = c.cfg->GetStringNoDefault(cat, buf);
 
                     if (fieldName == nullptr)
@@ -343,7 +348,7 @@ struct PacketsData
                         break;
                     }
 
-                    snprintf(buf, sizeof(buf), "%s Field %i Type", type, x);
+                    snprintf(buf, sizeof(buf), "%s Field %i Type", templateName, x);
                     const char* fieldType = c.cfg->GetStringNoDefault(cat, buf);
 
                     if (fieldType == nullptr)
@@ -368,7 +373,7 @@ struct PacketsData
                     }
                     else
                     {
-                        snprintf(buf, sizeof(buf), "%s Field %i Length", type, x);
+                        snprintf(buf, sizeof(buf), "%s Field %i Length", templateName, x);
                         fieldLength = c.cfg->GetInt(cat, buf, -1);
                         len += fieldLength;
 
@@ -401,23 +406,25 @@ struct PacketsData
 
                     if (core || !outgoingPacket)
                     {
-                        AddIncomingPacketId(core ? packetId : packetId << 8, len, type);
+                        AddIncomingPacketId(core ? packetId : packetId << 8, len, templateName);
 
-                        incomingOrCoreNameToTemplateMap[type] = pt;
-                        rv = &incomingOrCoreNameToTemplateMap[type];
+                        incomingOrCoreNameToTemplateMap[templateName] = pt;
+                        rv = &incomingOrCoreNameToTemplateMap[templateName];
                     }
                     else
                     {
-                        outgoingNameToTemplateMap[type] = pt;
-                        rv = &outgoingNameToTemplateMap[type];
+                        outgoingNameToTemplateMap[templateName] = pt;
+                        rv = &outgoingNameToTemplateMap[templateName];
                     }
                 }
             }
         }
         else
-        {
             rv = &i->second;
-        }
+
+        if (rv == nullptr)
+            c.log->FatalError("GetTemplate() could not load packet template for '%s'",
+                              templateName);
 
         return rv;
     }
@@ -442,6 +449,223 @@ struct PacketsData
         }
         else
             incomingPacketIdToLengthToNameMap[id][len] = name;
+    }
+
+    // check to see packet does not contain any extra fields, and that the length is valid
+    bool CheckPacketAgainstTemplate(PacketInstance* packet, PacketTemplate* pt, bool reliable)
+    {
+        bool rv = true;
+
+        // check strings and ntstrings
+        for (map<string, string>::iterator i = packet->cStrValues.begin();
+             i != packet->cStrValues.end(); ++i)
+        {
+            bool found = false;
+
+            for (int x = 0; x < (int)pt->chunks.size(); ++x)
+            {
+                if (pt->chunks[x].name == i->first &&
+                    (pt->chunks[x].type == FT_STRING || pt->chunks[x].type == FT_NTSTRING))
+                {
+                    if (pt->chunks[x].type == FT_STRING)  // do a length check
+                    {
+                        int len = (int)i->second.length();
+
+                        if (len >= pt->chunks[x].length)
+                        {
+                            c.log->LogError(
+                                "Packet Template string type '%s' (%s) is longer than "
+                                "permitted by the packet(%i >= %i)",
+                                i->first.c_str(), i->second.c_str(), len, pt->chunks[x].length);
+
+                            i->second = i->second.substr(0, pt->chunks[x].length - 1);
+                        }
+                    }
+
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                c.log->LogError(
+                    "Packet Template string type '%s'=%s does not exist in the packet template",
+                    i->first.c_str(), i->second.c_str());
+            }
+        }
+
+        // check ints
+        for (map<string, int>::iterator i = packet->intValues.begin(); i != packet->intValues.end();
+             ++i)
+        {
+            bool found = false;
+
+            for (int x = 0; x < (int)pt->chunks.size(); ++x)
+            {
+                if (pt->chunks[x].name == i->first && pt->chunks[x].type == FT_INT)
+                {
+                    u32 max = 0xFFFFFFFF;
+
+                    if (pt->chunks[x].length == 1)
+                        max = 0xFF;
+                    else if (pt->chunks[x].length == 2)
+                        max = 0xFFFF;
+
+                    u32 val = (u32)i->second;
+
+                    // negative values may be valid
+                    if (i->second > 0 && val > max)
+                    {
+                        c.log->LogError(
+                            "Packed template int '%s'(%i bytes) is out of bounds (%i > %i)",
+                            i->first.c_str(), pt->chunks[x].length, val, max);
+
+                        val = max;
+                    }
+
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                c.log->LogError("core = %i\n", pt->isCore ? 1 : 0);
+
+                for (int x = 0; x < (int)pt->chunks.size(); ++x)
+                {
+                    TemplateEntry te = pt->chunks[x];
+
+                    c.log->LogError("entry %i = '%s'\n", x, te.name.c_str());
+                }
+
+                c.log->LogError(
+                    "Packet Template int type '%s'=%i does not exist in the packet template "
+                    "type 0x%04x. dumped packet template",
+                    i->first.c_str(), i->second, pt->type);
+            }
+        }
+
+        return rv;
+    }
+
+    bool CheckPacket(PacketInstance* pi, bool reliable)
+    {
+        bool rv = false;
+        PacketTemplate* pt = GetTemplate(pi->templateName.c_str(), true);
+
+        if (pt)  // error will be logged if this is null in getTemplate
+        {
+            // check to make sure there are no extra fields and that the length is valid
+            if (CheckPacketAgainstTemplate(pi, pt, reliable))
+                rv = true;
+        }
+
+        return rv;
+    }
+
+    void PacketTemplateToRaw(PacketInstance* pi, bool reliable, vector<u8>* data)
+    {
+        PacketTemplate* pt = GetTemplate(pi->templateName.c_str(), reliable);
+        int len = GetPacketLength(pi, pt, reliable);
+        i32 cur = 0;
+        int checksumOffset = -1;  // automagically generates 1 byte checksums for packets if they
+                                  // have a "checksum" field
+        data->resize(len);
+
+        // handle reliable packets
+        if (reliable)
+        {
+            (*data)[cur++] = CORE_HEADER;
+            (*data)[cur++] = RELIABLE_HEADER;
+
+            // put in a filler reliable id (correct one will replace this later)
+            PutU32(&((*data)[0]) + cur, -1);
+            cur += 4;
+        }
+
+        // header
+        if (pt->isCore)
+        {
+            (*data)[cur++] = CORE_HEADER;
+        }
+
+        (*data)[cur++] = pt->type;
+
+        // header is complete, now populate the fields
+        for (vector<TemplateEntry>::iterator i = pt->chunks.begin(); i != pt->chunks.end(); ++i)
+        {
+            TemplateEntry* te = &(*i);
+            string* fieldName = &(i->name);
+
+            if (*fieldName == "checksum" && i->length == 1 && te->type == FT_INT)
+            {
+                checksumOffset = cur;
+                (*data)[cur++] = 0;
+            }
+            else if (te->type == FT_INT)
+            {
+                int val = GetPacketInstanceValue(pi, fieldName->c_str());
+
+                if (i->length == 1)
+                    (*data)[cur] = val;
+                else if (i->length == 2)
+                    PutU16(&((*data)[0]) + cur, val);
+                else if (i->length == 4)
+                    PutU32(&((*data)[0]) + cur, val);
+
+                cur += i->length;
+            }
+            else if (te->type == FT_STRING)
+            {
+                GetPacketInstanceValue(pi, fieldName->c_str(), (char*)(&((*data)[0]) + cur),
+                                       i->length);
+
+                cur += i->length;
+            }
+            else if (te->type == FT_NTSTRING)
+            {
+                string* val = &(pi->cStrValues[fieldName->c_str()]);
+
+                for (int x = 0; x < (int)val->length(); ++x)
+                {
+                    (*data)[cur++] = (*val)[x];
+                }
+
+                (*data)[cur++] = '\0';  // null terminated!
+            }
+            else if (te->type == FT_RAW)
+            {
+                int rawlen;
+                const u8* rawdata = GetPacketInstanceValue(pi, fieldName->c_str(), &rawlen);
+
+                if (rawdata != nullptr)
+                {
+                    for (int x = 0; x < rawlen; ++x)
+                        (*data)[cur++] = rawdata[x];
+                }
+            }
+        }
+
+        if (cur != len)
+        {
+            c.log->LogError(
+                "Packet length doesn't match calculated length when converting from template to "
+                "raw");
+        }
+
+        // automatically generate 1-byte checksum if we found such a field
+        if (checksumOffset >= 0)
+        {
+            u8 ck = 0;
+            int start = reliable ? 4 : 0;
+
+            for (int i = start; i < len; ++i)
+                ck ^= (*data)[i];
+
+            (*data)[checksumOffset] = ck;
+        }
     }
 
     void PutU32(u8* loc, u32 data)
@@ -488,6 +712,64 @@ struct PacketsData
 
         return rv;
     }
+
+    int GetPacketInstanceValue(const PacketInstance* pi,
+                               const char* type) const  // get a numerical value
+    {
+        int rv = 0;
+
+        map<string, int>::const_iterator i = pi->intValues.find(type);
+
+        if (i != pi->intValues.end())
+        {
+            rv = i->second;
+        }
+        else
+            c.log->LogError(
+                "GetPacketInstanceValue for int data was not found! returning 0; type = '%s'",
+                type);
+
+        return rv;
+    }
+
+    void GetPacketInstanceValue(const PacketInstance* pi, const char* type, char* store,
+                                int len) const  // get a c-string value
+    {
+        map<string, string>::const_iterator i = pi->cStrValues.find(type);
+
+        // pad storage with 0's
+        for (int x = 0; x < len; ++x)
+            store[x] = 0;
+
+        if (i != pi->cStrValues.end())
+            snprintf(store, len, "%s", i->second.c_str());
+        else
+            c.log->LogError(
+                "GetPacketInstanceValue for c_string data was not found! returning empty string; "
+                "type = '%s'",
+                type);
+    }
+
+    const u8* GetPacketInstanceValue(const PacketInstance* pi, const char* type, int* rawLen)
+    {
+        const u8* rv = nullptr;
+        *rawLen = 0;
+
+        map<string, vector<u8>>::const_iterator i = pi->rawValues.find(type);
+
+        if (i != pi->rawValues.end())
+        {
+            rv = &(i->second[0]);  // hmm... assumes vector is of type u8* internally, not ideal
+            *rawLen = (int)i->second.size();
+        }
+        else
+            c.log->LogError(
+                "GetPacketInstanceValue for raw data was not found! returning null pointer; type = "
+                "'%s'",
+                type);
+
+        return rv;
+    }
 };
 
 Packets::Packets(Client& c) : Module(c), data(make_shared<PacketsData>(c))
@@ -498,6 +780,22 @@ Packets::~Packets()
 {
 }
 
-const char* Packets::PopulatePacketInstance(PacketInstance* store, u8* data, int len)
+PacketType Packets::GetPacketType(const char* templateName, bool isOutgoing)
 {
-    return data->PopulatePacketInstance(store, data, len);
+    return data->GetPacketType(templateName, isOutgoing);
+}
+
+void Packets::PopulatePacketInstance(PacketInstance* store, u8* bytes, int len)
+{
+    return data->PopulatePacketInstance(store, bytes, len);
+}
+
+bool Packets::CheckPacket(PacketInstance* pi, bool reliable)
+{
+    return data->CheckPacket(pi, reliable);
+}
+
+void Packets::PacketTemplateToRaw(PacketInstance* packet, bool reliable, vector<u8>* rawData)
+{
+    data->PacketTemplateToRaw(packet, reliable, rawData);
+}

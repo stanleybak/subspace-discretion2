@@ -10,6 +10,10 @@
 #include "Module.h"
 #include "Packets.h"
 
+const u8 RELIABLE_HEADER = 0x03;
+const u8 CORE_HEADER = 0x00;
+const u8 CLUSTER_HEADER = 0x0E;
+
 struct NetData;
 
 class Net : public Module
@@ -18,14 +22,12 @@ class Net : public Module
     Net(Client& c);
     ~Net();
 
-    const char* GetPlayerName();
-
     bool NewConnection(const char* hostname, u16 port);
     void DisconnectSocket();
 
     void AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func);
-    void SendPacket(PacketInstance* packet, const char* templateName);
-    void SendReliablePacket(PacketInstance* packet, const char* templateName);
+    void SendPacket(PacketInstance* packet);
+    void SendReliablePacket(PacketInstance* packet);
 
     // periodically called
     void ReceivePackets(i32 ms);

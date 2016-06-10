@@ -2,6 +2,7 @@
 #include "utf8.h"
 #include "Graphics.h"
 #include "Net.h"
+#include "Connection.h"
 #include <deque>
 #include <map>
 
@@ -123,7 +124,7 @@ void Chat::TextEnter()
         {
             if (data->curTextUtf8[0] != '?' ||
                 !data->CheckInternalCommand(data->curTextUtf8.c_str()))
-                ChatMessage(type, c.net->GetPlayerName(), data->curTextUtf8.c_str());
+                ChatMessage(type, c.connection->GetPlayerName(), data->curTextUtf8.c_str());
         }
 
         data->curTextUtf8 = "";

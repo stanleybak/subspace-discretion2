@@ -1,7 +1,9 @@
+#include <SDL2/SDL.h>
 #include "Connection.h"
 #include "Packets.h"
 #include "Net.h"
-#include <SDL2/SDL.h>
+#include "Chat.h"
+using namespace std;
 
 struct ConnectionData
 {
@@ -18,7 +20,7 @@ struct ConnectionData
         STATUS_IN_ARENA,            // we are in an arena, sending and receiving position packets
     };
 
-    const char* PASSWORD_RESPONSE_CODES[] = {
+    const char* PASSWORD_RESPONSE_CODES[19] = {
         "Login OK", "Unregistered Player", "Bad Password", "Arena is Full", "Locked Out of Zone",
         "Permission Only Arena", "Permission to Spectate Only", "Too Many Points to Play Here",
         "Connection is too Slow", "Permission Only Arena", "Server is Full", "Invalid Name",
@@ -141,17 +143,17 @@ struct ConnectionData
             // in the future we might do something with the client key
 
             // send the password packet
-            PacketInstance packet;
+            PacketInstance packet("password request");
 
             packet.setValue("name", username.c_str());
             packet.setValue("password", password.c_str());
             packet.setValue("client version", clientVersion);
 
-            c.net->SendReliablePacket(&packet, "password request");
+            c.net->SendReliablePacket(&packet);
 
-            PacketInstance p2;
+            PacketInstance p2("sync ping");
             p2.setValue("timestamp", SDL_GetTicks());
-            c.net->SendPacket(&p2, "sync ping");
+            c.net->SendPacket(&p2);
 
             state = STATUS_SENT_PASSWORD;
         }
@@ -164,10 +166,10 @@ struct ConnectionData
 
     void SendConnectRequest()
     {
-        PacketInstance p;
+        PacketInstance p("encryption request");
         p.setValue("protocol", protocolVersion);
         p.setValue("key", encryptionKey);
-        c.net->SendPacket(&p, "encryption request");
+        c.net->SendPacket(&p);
 
         // reset variables
         state = STATUS_SENT_ENCRYPTION_REQUEST;
@@ -219,14 +221,19 @@ void Connection::Connect(const char* name, const char* pw, const char* hostname,
     data->Connect(name, pw, hostname, port);
 }
 
+bool Connection::isDisconnected()
+{
+    return data->state == data->STATUS_NOT_CONNECTED;
+}
+
 void Connection::Disconnect()
 {
     if (data->state != data->STATUS_NOT_CONNECTED)
     {
         data->state = data->STATUS_NOT_CONNECTED;
 
-        PacketInstance pi;
-        c.packets->SendPacket(&pi, "disconnect");
+        PacketInstance pi("disconnect");
+        c.net->SendPacket(&pi);
 
         c.net->DisconnectSocket();
     }
@@ -244,7 +251,7 @@ void Connection::UpdateConnectionStatus(i32 ms)
             {
                 c.chat->InternalMessage("Server did not respond to connection requests.");
                 c.log->LogDrivel("Exceeded max connection attempts, giving up.");
-                c.net->Disconnect();
+                c.connection->Disconnect();
                 data->state = data->STATUS_NOT_CONNECTED;
             }
             else
@@ -252,11 +259,16 @@ void Connection::UpdateConnectionStatus(i32 ms)
                 c.log->LogDrivel("Sending Encryption Request #%d", data->numberEncryptionRequests);
                 data->nextEncryptionRequestMs = data->connectRetryMs;
 
-                PacketInstance p;
+                PacketInstance p("encryption request");
                 p.setValue("protocol", data->protocolVersion);
                 p.setValue("key", data->encryptionKey);
-                c.net->SendPacket(&p, "encryption request");
+                c.net->SendPacket(&p);
             }
         }
     }
+}
+
+const char* Connection::GetPlayerName()
+{
+    return data->username.c_str();
 }

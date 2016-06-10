@@ -143,7 +143,7 @@ Client::Client()
       chat(make_shared<Chat>(*this)),
       ships(make_shared<Ships>(*this)),
       packets(make_shared<Packets>(*this)),
-      connection(make_shared<Connection>)
+      connection(make_shared<Connection>(*this))
 {
 #ifndef WIN32
     // this requires being compiled with -g -rdynamic to get function names to work

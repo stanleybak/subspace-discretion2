@@ -14,19 +14,18 @@ struct PacketsData;
 
 struct PacketInstance
 {
-    PacketInstance() {}
+    PacketInstance(const char* templateName) : templateName(templateName) {}
     void setValue(const char* type, i32 value) { intValues[type] = value; }
     void setValue(const char* type, const char* value) { cStrValues[type] = value; }
     void setValue(const char* type, const vector<u8>* value) { rawValues[type] = *value; }
 
-    int getValue(const char* type) const;
-    void getValue(const char* type, char* store, int len) const;
-    const u8* getValue(const char* type, int* rawLen) const;
-
+    string templateName;
     map<string, i32> intValues;
     map<string, string> cStrValues;
     map<string, vector<u8> > rawValues;
 };
+
+typedef pair<bool, u8> PacketType;  // isCore, id
 
 class Packets : public Module
 {
@@ -34,8 +33,16 @@ class Packets : public Module
     Packets(Client& c);
     ~Packets();
 
-    // returns the template name
-    const char* PopulatePacketInstance(PacketInstance* store, u8* data, int len);
+    // never fails
+    PacketType GetPacketType(const char* templateName, bool isOutgoing);
+
+    // returns the template name or nullptr, if not found
+    void PopulatePacketInstance(PacketInstance* store, u8* data, int len);
+
+    // returns false and logs error if malformed
+    bool CheckPacket(PacketInstance* pi, bool reliable);
+
+    void PacketTemplateToRaw(PacketInstance* packet, bool reliable, vector<u8>* rawData);
 
    private:
     shared_ptr<PacketsData> data;

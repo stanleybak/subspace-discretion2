@@ -4,6 +4,7 @@
 #include "Ships.h"
 #include "Chat.h"
 #include "Timers.h"
+#include "Connection.h"
 #include "Net.h"
 
 struct SDLmanData
@@ -51,7 +52,7 @@ void SDLmanData::PreDestroy()
     shipInfoText = nullptr;
 
     // in case we haven't disconnected yet
-    c.net->Disconnect();
+    c.connection->Disconnect();
 }
 
 void SDLmanData::PostInit()
