@@ -143,9 +143,7 @@ struct PacketsData
 
     void PopulatePacketInstance(PacketInstance* store, u8* data, int len)
     {
-        const char* templateName = nullptr;
-
-        // populate the packet instance and call the handlers
+        // packet received: populate the PacketInstance* from raw data
         u16 type = data[0] == CORE_HEADER ? (u16)data[1] : ((u16)data[0]) << 8;
         map<u16, map<u16, string>>::iterator j = incomingPacketIdToLengthToNameMap.find(type);
 
@@ -187,6 +185,7 @@ struct PacketsData
                         "shouldn't ever happen)");
                 else
                 {
+                    const char* templateName = i->second.c_str();
                     // convert the raw data to a PacketInstance
 
                     int curByte = pt->isCore ? 2 : 1;  // skip the header
@@ -201,7 +200,7 @@ struct PacketsData
                             if (len - curByte < te->length)
                             {
                                 c.log->LogError(
-                                    "Packet Recevied (0x%04x) does not match template %s; packet "
+                                    "Packet Received (0x%04x) does not match template %s; packet "
                                     "dropped.",
                                     type, i->second.c_str());
 
@@ -226,7 +225,7 @@ struct PacketsData
                             if (len - curByte < te->length)
                             {
                                 c.log->LogError(
-                                    "Packet Recevied (0x%04x) does not match template %s; "
+                                    "Packet Received (0x%04x) does not match template %s; "
                                     "packet dropped.",
                                     type, i->second.c_str());
 
@@ -352,15 +351,21 @@ struct PacketsData
 
         if (!found)
         {  // load it
-            const char* cat = "Packet Templates";
+            const char* cat = "Packets";
             char buf[256];
             u16 len = 1;
 
             snprintf(buf, sizeof(buf), "%s Field Count", templateName);
-            i32 count = c.cfg->GetInt(cat, buf, -1);
+            i32 count = c.cfg->GetInt(cat, buf, -1, [](i32 val)
+                                      {
+                                          return val >= 0;
+                                      });
 
             snprintf(buf, sizeof(buf), "%s Type", templateName);
-            i32 packetId = c.cfg->GetInt(cat, buf, -1);
+            i32 packetId = c.cfg->GetInt(cat, buf, -1, [](i32 val)
+                                         {
+                                             return val >= 1 && val <= 255;
+                                         });
 
             bool core = false;
 
@@ -370,97 +375,88 @@ struct PacketsData
             if (core)
                 ++len;
 
-            if (packetId < 1 || packetId > 255)
-                c.log->LogError(
-                    "%s::%s Type is not a valid setting (is the packet defined in the conf?)", cat,
-                    templateName);
-            else if (count < 0)
-                c.log->LogError("%s::%s Field Count is not a valid setting", cat, templateName);
-            else
+            PacketTemplate pt;
+
+            // for each field
+            int x;
+            for (x = 0; x < count; ++x)
             {
-                PacketTemplate pt;
+                snprintf(buf, sizeof(buf), "%s Field %i Name", templateName, x);
+                const char* fieldName = c.cfg->GetStringNoDefault(cat, buf);
 
-                // for each field
-                int x;
-                for (x = 0; x < count; ++x)
+                if (fieldName == nullptr)
                 {
-                    snprintf(buf, sizeof(buf), "%s Field %i Name", templateName, x);
-                    const char* fieldName = c.cfg->GetStringNoDefault(cat, buf);
+                    c.log->LogError("%s::%s is invalid or undefined", cat, buf);
+                    break;
+                }
 
-                    if (fieldName == nullptr)
+                snprintf(buf, sizeof(buf), "%s Field %i Type", templateName, x);
+                const char* fieldType = c.cfg->GetStringNoDefault(cat, buf);
+
+                if (fieldType == nullptr)
+                {
+                    c.log->LogError("%s::%s is invalid", cat, buf);
+                    break;
+                }
+
+                FieldType ft = FieldTypeStringToFieldType(fieldType);  // will report errors
+                i32 fieldLength = 0;
+
+                if (ft == FT_NTSTRING || ft == FT_RAW)
+                {
+                    len = 0;  // these types don't allow for multiple handlers/type
+
+                    if (c.cfg->GetStringNoDefault(cat, buf) != nullptr)
                     {
-                        c.log->LogError("%s::%s is invalid or undefined", cat, buf);
+                        c.log->LogError("%s::%s shoudln't be defined (type is %s)", cat, buf,
+                                        fieldType);
                         break;
                     }
+                }
+                else
+                {
+                    snprintf(buf, sizeof(buf), "%s Field %i Length", templateName, x);
+                    fieldLength = c.cfg->GetInt(cat, buf, -1);
+                    len += fieldLength;
 
-                    snprintf(buf, sizeof(buf), "%s Field %i Type", templateName, x);
-                    const char* fieldType = c.cfg->GetStringNoDefault(cat, buf);
-
-                    if (fieldType == nullptr)
+                    if (ft == FT_STRING && fieldLength <= 0)
                     {
                         c.log->LogError("%s::%s is invalid", cat, buf);
                         break;
                     }
-
-                    FieldType ft = FieldTypeStringToFieldType(fieldType);  // will report errors
-                    i32 fieldLength = 0;
-
-                    if (ft == FT_NTSTRING || ft == FT_RAW)
+                    else if (ft == FT_INT &&
+                             !(fieldLength == 1 || fieldLength == 2 || fieldLength == 4))
                     {
-                        len = 0;  // these types don't allow for multiple handlers/type
-
-                        if (c.cfg->GetStringNoDefault(cat, buf) != nullptr)
-                        {
-                            c.log->LogError("%s::%s shoudln't be defined (type is %s)", cat, buf,
-                                            fieldType);
-                            break;
-                        }
+                        c.log->LogError("%s::%s is invalid", cat, buf);
+                        break;
                     }
-                    else
-                    {
-                        snprintf(buf, sizeof(buf), "%s Field %i Length", templateName, x);
-                        fieldLength = c.cfg->GetInt(cat, buf, -1);
-                        len += fieldLength;
-
-                        if (ft == FT_STRING && fieldLength <= 0)
-                        {
-                            c.log->LogError("%s::%s is invalid", cat, buf);
-                            break;
-                        }
-                        else if (ft == FT_INT &&
-                                 !(fieldLength == 1 || fieldLength == 2 || fieldLength == 4))
-                        {
-                            c.log->LogError("%s::%s is invalid", cat, buf);
-                            break;
-                        }
-                    }
-
-                    TemplateEntry te;
-
-                    te.name = *fieldName;
-                    te.type = ft;
-                    te.length = fieldLength;
-
-                    pt.chunks.push_back(te);
                 }
 
-                if (x == count)  // there were no errors
+                TemplateEntry te;
+
+                te.name = fieldName;
+                te.type = ft;
+                te.length = fieldLength;
+
+                pt.chunks.push_back(te);
+            }
+
+            if (x == count)  // there were no errors
+            {
+                pt.isCore = core;
+                pt.type = packetId;
+
+                if (core || !outgoingPacket)
                 {
-                    pt.isCore = core;
-                    pt.type = packetId;
+                    AddIncomingPacketId(core ? packetId : packetId << 8, len, templateName);
 
-                    if (core || !outgoingPacket)
-                    {
-                        AddIncomingPacketId(core ? packetId : packetId << 8, len, templateName);
-
-                        incomingOrCoreNameToTemplateMap[templateName] = pt;
-                        rv = &incomingOrCoreNameToTemplateMap[templateName];
-                    }
-                    else
-                    {
-                        outgoingNameToTemplateMap[templateName] = pt;
-                        rv = &outgoingNameToTemplateMap[templateName];
-                    }
+                    incomingOrCoreNameToTemplateMap[templateName] = pt;
+                    rv = &incomingOrCoreNameToTemplateMap[templateName];
+                }
+                else
+                {
+                    outgoingNameToTemplateMap[templateName] = pt;
+                    rv = &outgoingNameToTemplateMap[templateName];
                 }
             }
         }
@@ -576,19 +572,16 @@ struct PacketsData
 
             if (!found)
             {
-                c.log->LogError("core = %i\n", pt->isCore ? 1 : 0);
+                c.log->LogError(
+                    "Packet Template int type '%s' (tried to set to %i) does not exist in the "
+                    "packet template type 0x%04x (%s). dumping packet template:",
+                    i->first.c_str(), i->second, pt->type, packet->templateName.c_str());
+
+                c.log->LogError("%s iscore = %i", packet->templateName.c_str(), pt->isCore ? 1 : 0);
 
                 for (int x = 0; x < (int)pt->chunks.size(); ++x)
-                {
-                    TemplateEntry te = pt->chunks[x];
-
-                    c.log->LogError("entry %i = '%s'\n", x, te.name.c_str());
-                }
-
-                c.log->LogError(
-                    "Packet Template int type '%s'=%i does not exist in the packet template "
-                    "type 0x%04x. dumped packet template",
-                    i->first.c_str(), i->second, pt->type);
+                    c.log->LogError("%s field %i name was '%s'", packet->templateName.c_str(), x,
+                                    pt->chunks[x].name.c_str());
             }
         }
 
@@ -748,12 +741,7 @@ int PacketInstance::GetValue(const char* type) const
     map<string, int>::const_iterator i = intValues.find(type);
 
     if (i != intValues.end())
-    {
         rv = i->second;
-    }
-    else
-        c.log->LogError(
-            "GetPacketInstanceValue for int data was not found! returning 0; type = '%s'", type);
 
     return rv;
 }
@@ -768,11 +756,6 @@ void PacketInstance::GetValue(const char* type, char* store, int len) const
 
     if (i != cStrValues.end())
         snprintf(store, len, "%s", i->second.c_str());
-    else
-        c.log->LogError(
-            "GetPacketInstanceValue for c_string data was not found! returning empty string; "
-            "type = '%s'",
-            type);
 }
 
 const u8* PacketInstance::GetValue(const char* type, int* rawLen) const
@@ -787,11 +770,6 @@ const u8* PacketInstance::GetValue(const char* type, int* rawLen) const
         rv = &(i->second[0]);  // hmm... assumes vector is of type u8* internally, not ideal
         *rawLen = (int)i->second.size();
     }
-    else
-        c.log->LogError(
-            "GetPacketInstanceValue for raw data was not found! returning null pointer; type = "
-            "'%s'",
-            type);
 
     return rv;
 }

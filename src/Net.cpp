@@ -32,12 +32,12 @@ struct NetData
         AddRawPacketHandler(make_pair(true, 0x0E), coreHandlers.handleClusterPacket);
         AddRawPacketHandler(make_pair(true, 0x0A), coreHandlers.handleStream);
 
-        c.net->AddPacketHandler("reliable response", coreHandlers.handleReliableReponse);
-        c.net->AddPacketHandler("cancel stream response", coreHandlers.handleCancelStreamResponse);
+        AddPacketHandler("reliable response", coreHandlers.handleReliableReponse);
+        AddPacketHandler("cancel stream response", coreHandlers.handleCancelStreamResponse);
 
-        c.net->AddPacketHandler("sync pong", coreHandlers.handleSyncPong);
-        c.net->AddPacketHandler("sync request", coreHandlers.handleSyncRequest);
-        c.net->AddPacketHandler("keep alive", coreHandlers.handleKeepAlive);
+        AddPacketHandler("sync pong", coreHandlers.handleSyncPong);
+        AddPacketHandler("sync request", coreHandlers.handleSyncRequest);
+        AddPacketHandler("keep alive", coreHandlers.handleKeepAlive);
     }
 
     ~NetData()
@@ -124,7 +124,7 @@ struct NetData
         auto range = rawPackedHandlers.equal_range(type);
 
         if (range.first == range.second)  // no handlers
-            c.log->LogError("Packet received of type %04x (%s) len = %i, but no handler exists!",
+            c.log->LogError("Packet received of type %02x (%s) len = %i, but no handler exists!",
                             type.second, type.first ? "core packet" : "non-core packet", len);
 
         // call all of the handlers for this type
@@ -155,19 +155,34 @@ struct NetData
         }
     }
 
+    void DumpPacket(const char* prefix, u8* data, i32 len)
+    {
+        string buf = string(prefix) + " (len=" + to_string(len) + "):";
+
+        for (int i = 0; i < len; ++i)
+        {
+            char byte[4];
+            snprintf(byte, sizeof(byte), " %02x", data[i]);
+
+            buf += byte;
+        }
+
+        c.log->LogDrivel("%s", buf.c_str());
+    }
+
     void PollSocket(i32 ms)
     {
         i32 now = SDL_GetTicks();
 
         while (SDLNet_UDP_Recv(sock, packet))
         {
-            // dumpPacket("RECV", (u8*)packet->data, packet->len);
+            DumpPacket("RECV", (u8*)packet->data, packet->len);
 
             lastData = now;
             PumpPacket(packet->data, packet->len);
         }
 
-        if (now - lastData > maxTimeWithoutData)  // we should disconnect, no data
+        if (c.connection->isCompletelyConnected() && now - lastData > maxTimeWithoutData)
         {
             c.chat->InternalMessage("You have disconnected from the server (no data coming in).");
             c.connection->Disconnect();
@@ -214,12 +229,18 @@ struct NetData
         // statsSentRecently += p->len;
         // statsSentTotal += p->len;
 
+        DumpPacket("SEND", (u8*)p->data, p->len);
+
         if (!SDLNet_UDP_Send(sock, channel, p))
             c.log->LogError("SDLNet_UDP_Send: %s\n", SDLNet_GetError());
     }
 
     void FlushRawOutgoingPackets()
     {
+        if (packet == nullptr)
+            c.log->FatalError(
+                "Net::FlushRawOutgoingPackets() called but we're not connected (packet == null)");
+
         // cluster as many packets as we can and send them
         unsigned int numPackets = 0;
         unsigned int curByte = 2;
@@ -305,7 +326,7 @@ struct NetData
     // generic raw handler for all template functions which have handler function
     std::function<void(u8*, i32)> templatePacketRecevied = [this](u8* data, i32 len)
     {
-        PacketInstance store(c, "temp");
+        PacketInstance store("temp");
         c.packets->PopulatePacketInstance(&store, data, len);
 
         if (store.templateName != "temp")
@@ -331,7 +352,7 @@ Net::~Net()
 
 bool Net::NewConnection(const char* hostname, u16 port)
 {
-    if (!c.connection->isDisconnected())
+    if (!c.connection->isCompletelyDisconnected())
     {
         c.log->LogError(
             "Net::NewConnection() called, but connection is still active (will lead to "
@@ -348,7 +369,7 @@ void Net::DisconnectSocket()
     // if we're connected, send a disconnect packet
     if (data->packet != nullptr)
     {
-        if (c.connection->isDisconnected())
+        if (!c.connection->isCompletelyDisconnected())
             c.log->LogError(
                 "Net::DisconnectSocket() called, but connection is still active (will lead to "
                 "dirty disconnect). Use Connection::Disconnect() instead.");
@@ -367,9 +388,11 @@ void Net::ReceivePackets(i32 ms)
 
 void Net::SendPackets(i32 ms)
 {
-    data->coreHandlers.ResendReliablePackets(ms, &data->packetQueue);
+    if (data->packet != nullptr)  // if we're connected
+        data->coreHandlers.ResendReliablePackets(ms, &data->packetQueue);
 
-    data->FlushRawOutgoingPackets();
+    if (data->packet != nullptr)  // if we're still connected (reliable resend can disconnect)
+        data->FlushRawOutgoingPackets();
 }
 
 void Net::AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func)

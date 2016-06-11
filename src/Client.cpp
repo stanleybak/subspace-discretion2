@@ -10,7 +10,14 @@
 #include "Packets.h"
 #include "Connection.h"
 
-#ifndef WIN32
+#ifdef WIN32
+void PrintStackTrace()
+{
+    fprintf(stderr, "Stack trace not available on Windows.\n");
+}
+
+#else
+
 #include <signal.h>
 #include <execinfo.h>  // for backtraces
 #include <cxxabi.h>    // for c++ name demangling
@@ -20,12 +27,12 @@
 // Print a demangled stack backtrace of the caller function
 // from: http://panthema.net/2008/0901-stacktrace-demangled
 // this requires being compiled with -g -rdynamic to work
-static void PrintStackTrace()
+void PrintStackTrace()
 {
-    FILE *out = stdout;
+    FILE *out = stderr;
     unsigned int max_frames = 127;
 
-    fprintf(out, "\nSEGFAULT - Stack trace (requires compilation with '-g -rdynamic'):\n");
+    fprintf(out, "\nStack trace (requires compilation with '-g -rdynamic'):\n");
 
     // storage array for stack trace address data
     void *addrlist[max_frames + 1];
@@ -125,6 +132,7 @@ static void PrintStackTrace()
 
 static void SigHandler(int sig)
 {
+    fprintf(stderr, "\nSEGFAULT, trying to print stack trace.");
     PrintStackTrace();
     signal(sig, SIG_DFL);
     kill(getpid(), sig);
@@ -132,23 +140,32 @@ static void SigHandler(int sig)
 
 #endif  // !WIN32
 
+class SegFaultHandler
+{
+   public:
+    SegFaultHandler()
+    {
+#ifndef WIN32
+        // this requires being compiled with -g -rdynamic to get function names to work
+        signal(SIGSEGV, SigHandler);
+#endif  // !WIN32
+    }
+};
+
 Client::Client()
     :  // initialization order matters, add to the end
+      segFaultHandler(make_shared<SegFaultHandler>()),
       cfg(make_shared<Config>(*this)),
       log(make_shared<Logman>(*this)),
+      packets(make_shared<Packets>(*this)),
       net(make_shared<Net>(*this)),
       sdl(make_shared<SDLman>(*this)),
       graphics(make_shared<Graphics>(*this)),
       timers(make_shared<Timers>(*this)),
       chat(make_shared<Chat>(*this)),
       ships(make_shared<Ships>(*this)),
-      packets(make_shared<Packets>(*this)),
       connection(make_shared<Connection>(*this))
 {
-#ifndef WIN32
-    // this requires being compiled with -g -rdynamic to get function names to work
-    signal(SIGSEGV, SigHandler);
-#endif  // !WIN32
 }
 
 void Client::Start()

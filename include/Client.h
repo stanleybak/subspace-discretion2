@@ -15,12 +15,16 @@ class Logman;
 class Config;
 class SDLman;
 class Graphics;
+class SegFaultHandler;
 class Timers;
 class Ships;
 class Chat;
 class Net;
 class Packets;
 class Connection;
+
+// only works on non-windows
+void PrintStackTrace();
 
 class Client
 {
@@ -30,14 +34,15 @@ class Client
 
     // these must be pointers because we use forward declarations (since the sizes of the types are
     // unknown)
+    shared_ptr<SegFaultHandler> segFaultHandler;  // created first to catch initialization errors
     shared_ptr<Config> cfg;
     shared_ptr<Logman> log;
+    shared_ptr<Packets> packets;
     shared_ptr<Net> net;
     shared_ptr<SDLman> sdl;
     shared_ptr<Graphics> graphics;
     shared_ptr<Timers> timers;
     shared_ptr<Chat> chat;
     shared_ptr<Ships> ships;
-    shared_ptr<Packets> packets;
     shared_ptr<Connection> connection;
 };

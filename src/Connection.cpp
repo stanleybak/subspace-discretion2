@@ -76,7 +76,7 @@ struct ConnectionData
                 else
                 {
                     string hostname = connectAddr.substr(0, index);
-                    const char* portStr = connectAddr.substr(0, index + 1).c_str();
+                    const char* portStr = connectAddr.substr(index + 1).c_str();
                     i32 port = atoi(portStr);
 
                     if (port <= 0 || port > 65535)
@@ -153,7 +153,7 @@ struct ConnectionData
 
     void SendConnectRequest()
     {
-        PacketInstance p(c, "encryption request");
+        PacketInstance p("encryption request");
         p.SetValue("protocol", protocolVersion);
         p.SetValue("key", encryptionKey);
         c.net->SendPacket(&p);
@@ -188,7 +188,7 @@ struct ConnectionData
             // in the future we might do something with the client key
 
             // send the password packet
-            PacketInstance packet(c, "password request");
+            PacketInstance packet("password request");
 
             packet.SetValue("name", username.c_str());
             packet.SetValue("password", password.c_str());
@@ -196,7 +196,7 @@ struct ConnectionData
 
             c.net->SendReliablePacket(&packet);
 
-            PacketInstance p2(c, "sync ping");
+            PacketInstance p2("sync ping");
             p2.SetValue("timestamp", SDL_GetTicks());
             c.net->SendPacket(&p2);
 
@@ -228,14 +228,14 @@ struct ConnectionData
             if (loginCode == LOGIN_OK)
             {
                 // send cancel stream request (for news.txt, I think)
-                PacketInstance cancelStream(c, "cancel stream request");
+                PacketInstance cancelStream("cancel stream request");
                 c.net->SendReliablePacket(&cancelStream);
 
                 // so we're expecting the ack of the cancel above
                 c.net->ExpectStreamTransfer(nullptr, nullptr);
 
                 // send arena login
-                PacketInstance arenaLogin(c, "arena login");
+                PacketInstance arenaLogin("arena login");
 
                 arenaLogin.SetValue("ship", SHIP_SPEC);
                 arenaLogin.SetValue("allow audio", 1);
@@ -294,9 +294,14 @@ void Connection::Connect(const char* name, const char* pw, const char* hostname,
     data->Connect(name, pw, hostname, port);
 }
 
-bool Connection::isDisconnected()
+bool Connection::isCompletelyDisconnected()
 {
     return data->state == data->STATUS_NOT_CONNECTED;
+}
+
+bool Connection::isCompletelyConnected()
+{
+    return data->state == data->STATUS_IN_ARENA;
 }
 
 void Connection::Disconnect()
@@ -305,7 +310,7 @@ void Connection::Disconnect()
     {
         data->state = data->STATUS_NOT_CONNECTED;
 
-        PacketInstance pi(c, "disconnect");
+        PacketInstance pi("disconnect");
         c.net->SendPacket(&pi);
 
         c.net->DisconnectSocket();
@@ -332,7 +337,7 @@ void Connection::UpdateConnectionStatus(i32 ms)
                 c.log->LogDrivel("Sending Encryption Request #%d", data->numberEncryptionRequests);
                 data->nextEncryptionRequestMs = data->connectRetryMs;
 
-                PacketInstance p(c, "encryption request");
+                PacketInstance p("encryption request");
                 p.SetValue("protocol", data->protocolVersion);
                 p.SetValue("key", data->encryptionKey);
                 c.net->SendPacket(&p);

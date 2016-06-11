@@ -55,7 +55,7 @@ struct NetCoreHanders
     };
 
     Client& c;
-    i32 maxStreamLen = c.cfg->GetInt("Net", "Max File Size", 4194304);
+    i32 maxStreamLen = c.cfg->GetInt("Net", "Max File Size Bytes", 4194304);
     i32 reliableResendTime = c.cfg->GetInt("Net", "Reliable Resend Mills", 300);
     i32 reliableWarnRetries = c.cfg->GetInt("Net", "Reliable Warn Retries", 5);
     i32 reliableMaxRetries = c.cfg->GetInt("Net", "Reliable Max Retries", 10);
@@ -97,6 +97,8 @@ struct NetCoreHanders
 
                     c.chat->InternalMessage(
                         "You have disconnected from the server. (too many reliable retries)");
+
+                    break;
                 }
                 else
                 {
@@ -161,7 +163,7 @@ struct NetCoreHanders
             // send ack
             if (ackId <= nextIncomingReliableId)  // this ensures ordering
             {
-                PacketInstance pi(c, "reliable response");
+                PacketInstance pi("reliable response");
                 pi.SetValue("id", ackId);
                 c.net->SendPacket(&pi);
             }
@@ -195,7 +197,7 @@ struct NetCoreHanders
                      i = backloggedPackets.find(++nextIncomingReliableId))
                 {
                     // send ack
-                    PacketInstance pi(c, "reliable response");
+                    PacketInstance pi("reliable response");
                     pi.SetValue("id", nextIncomingReliableId);
                     c.net->SendPacket(&pi);
 
@@ -315,7 +317,7 @@ struct NetCoreHanders
 
     std::function<void(const PacketInstance*)> handleSyncRequest = [this](const PacketInstance* pi)
     {
-        PacketInstance p(c, "sync ping");
+        PacketInstance p("sync ping");
         p.SetValue("timestamp", SDL_GetTicks() / 10);
         c.net->SendPacket(&p);
     };

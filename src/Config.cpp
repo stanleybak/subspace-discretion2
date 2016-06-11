@@ -271,7 +271,9 @@ i32 Config::GetInt(const char* section, const char* name, i32 def)
     const char* val = GetStringNoDefault(section, name);
 
     if (val == nullptr)
+    {
         c.log->LogInfo("Int setting %s::%s not found; defaulting to %d", section, name, def);
+    }
     else
     {
         char* end;

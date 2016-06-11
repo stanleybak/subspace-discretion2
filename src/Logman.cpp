@@ -97,6 +97,8 @@ void Logman::FatalError(const char* format, ...)
 
     va_end(args);
 
+    PrintStackTrace();
+
     abort();
 }
 
