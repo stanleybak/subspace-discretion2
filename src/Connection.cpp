@@ -5,6 +5,29 @@
 #include "Chat.h"
 using namespace std;
 
+static const char* PASSWORD_RESPONSE_MOD_ERROR = "Restricted Zone, Mod Access Required";
+static const char* PASSWORD_RESPONSE_UNDEF_ERROR = "Undefined Error Code";
+
+static const char* PASSWORD_RESPONSE_CODES[19] = {
+    "Login OK", "Unregistered Player", "Bad Password", "Arena is Full", "Locked Out of Zone",
+    "Permission Only Arena", "Permission to Spectate Only", "Too Many Points to Play Here",
+    "Connection is too Slow", "Permission Only Arena", "Server is Full", "Invalid Name",
+    "Offensive Name", "No Active Biller", "Server Busy, Try Later", "Restricted Zone",
+    "Demo Version Detected", "Too Many Demo Users", "Demo Versions not Allowed",
+};
+
+static const char* GetPasswordErrorCode(u8 code)
+{
+    const char* rv = PASSWORD_RESPONSE_UNDEF_ERROR;
+
+    if (code == 0xFF)
+        rv = PASSWORD_RESPONSE_MOD_ERROR;
+    else if (code < sizeof(PASSWORD_RESPONSE_CODES) / sizeof(PASSWORD_RESPONSE_CODES[0]))
+        rv = PASSWORD_RESPONSE_CODES[code];
+
+    return rv;
+}
+
 struct ConnectionData
 {
     enum ConnectionStatus
@@ -18,14 +41,6 @@ struct ConnectionData
         STATUS_SENT_ARENA_REQUEST,  // we've sent out enter arena request, but aren't in the arena
                                     // yet
         STATUS_IN_ARENA,            // we are in an arena, sending and receiving position packets
-    };
-
-    const char* PASSWORD_RESPONSE_CODES[19] = {
-        "Login OK", "Unregistered Player", "Bad Password", "Arena is Full", "Locked Out of Zone",
-        "Permission Only Arena", "Permission to Spectate Only", "Too Many Points to Play Here",
-        "Connection is too Slow", "Permission Only Arena", "Server is Full", "Invalid Name",
-        "Offensive Name", "No Active Biller", "Server Busy, Try Later", "Restricted Zone",
-        "Demo Version Detected", "Too Many Demo Users", "Demo Versions not Allowed",
     };
 
     Client& c;
@@ -134,34 +149,6 @@ struct ConnectionData
             c.chat->InternalMessage("Expected '?ip=XYZ'.");
     };
 
-    std::function<void(const PacketInstance*)> handleEncryptionReponse =
-        [this](const PacketInstance* pi)
-    {
-        if (state == STATUS_SENT_ENCRYPTION_REQUEST)
-        {
-            c.chat->InternalMessage("Got Encryption Response; Sent Password Request");
-            // in the future we might do something with the client key
-
-            // send the password packet
-            PacketInstance packet(c, "password request");
-
-            packet.SetValue("name", username.c_str());
-            packet.SetValue("password", password.c_str());
-            packet.SetValue("client version", clientVersion);
-
-            c.net->SendReliablePacket(&packet);
-
-            PacketInstance p2(c, "sync ping");
-            p2.SetValue("timestamp", SDL_GetTicks());
-            c.net->SendPacket(&p2);
-
-            state = STATUS_SENT_PASSWORD;
-        }
-        // otherwise it might have been a packet that we just got late from an earlier request,
-        // silently
-        // ignore
-    };
-
     ConnectionData(Client& client) : c(client) {}
 
     void SendConnectRequest()
@@ -191,6 +178,90 @@ struct ConnectionData
             SendConnectRequest();
         }
     }
+
+    std::function<void(const PacketInstance*)> handleEncryptionReponse =
+        [this](const PacketInstance* pi)
+    {
+        if (state == STATUS_SENT_ENCRYPTION_REQUEST)
+        {
+            c.chat->InternalMessage("Got Encryption Response; Sent Password Request");
+            // in the future we might do something with the client key
+
+            // send the password packet
+            PacketInstance packet(c, "password request");
+
+            packet.SetValue("name", username.c_str());
+            packet.SetValue("password", password.c_str());
+            packet.SetValue("client version", clientVersion);
+
+            c.net->SendReliablePacket(&packet);
+
+            PacketInstance p2(c, "sync ping");
+            p2.SetValue("timestamp", SDL_GetTicks());
+            c.net->SendPacket(&p2);
+
+            state = STATUS_SENT_PASSWORD;
+        }
+        // otherwise it might have been a packet that we just got late from an earlier request,
+        // silently
+        // ignore
+    };
+
+    std::function<void(const PacketInstance*)> handlePasswordResponse =
+        [this](const PacketInstance* pi)
+    {
+        if (state == STATUS_SENT_PASSWORD)
+        {
+            const int LOGIN_OK = 0x00;
+            const int SHIP_SPEC = 0x08;
+            const int RANDOM_PUB = 0xFFFF;
+
+            const int X_RES = 800;
+            const int Y_RES = 600;
+
+            u8 loginCode = pi->GetValue("login response");
+            char buf[128];
+            snprintf(buf, sizeof(buf), "Recevied Password Response: %s (0x%02x)",
+                     GetPasswordErrorCode(loginCode), loginCode);
+            c.chat->InternalMessage(buf);
+
+            if (loginCode == LOGIN_OK)
+            {
+                // send cancel stream request (for news.txt, I think)
+                PacketInstance cancelStream(c, "cancel stream request");
+                c.net->SendReliablePacket(&cancelStream);
+
+                // so we're expecting the ack of the cancel above
+                c.net->ExpectStreamTransfer(nullptr, nullptr);
+
+                // send arena login
+                PacketInstance arenaLogin(c, "arena login");
+
+                arenaLogin.SetValue("ship", SHIP_SPEC);
+                arenaLogin.SetValue("allow audio", 1);
+                arenaLogin.SetValue("x resolution", X_RES);
+                arenaLogin.SetValue("y resolution", Y_RES);
+                arenaLogin.SetValue("arena number", RANDOM_PUB);
+
+                c.net->SendReliablePacket(&arenaLogin);
+                c.chat->InternalMessage("Sent Arena Login");
+
+                state = STATUS_SENT_ARENA_REQUEST;
+            }
+            else
+            {
+                char buf[128];
+
+                snprintf(buf, sizeof(buf), "WARNING: Login Failed: %s (0x%02x)",
+                         GetPasswordErrorCode(loginCode), loginCode);
+                c.chat->InternalMessage(buf);
+            }
+        }
+    };
+
+    std::function<void(const PacketInstance*)> handleDisconnect = [this](const PacketInstance* pi)
+    {
+    };
 };
 
 Connection::Connection(Client& c) : Module(c), data(make_shared<ConnectionData>(c))
@@ -210,6 +281,8 @@ Connection::Connection(Client& c) : Module(c), data(make_shared<ConnectionData>(
     c.chat->ChatMessage(Chat_Remote, nullptr, intro.c_str());
 
     c.net->AddPacketHandler("encryption response", data->handleEncryptionReponse);
+    c.net->AddPacketHandler("password response", data->handlePasswordResponse);
+    c.net->AddPacketHandler("disconnect", data->handleDisconnect);
 }
 
 Connection::~Connection()

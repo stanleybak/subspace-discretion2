@@ -136,6 +136,19 @@ struct NetCoreHanders
         relPackets.push_back(QueuedReliablePacket(packet, id, reliableResendTime));
     }
 
+    void ExpectStreamTransfer(std::function<void()> abortFunc,
+                              std::function<void(i32, i32)> progressFunc)
+    {
+        if (streamDataIn.len == STREAM_LEN_UNINITIALIZED)
+        {
+            streamDataIn.len = STREAM_LEN_EXPECTING;
+            streamDataIn.abortFunc = abortFunc;
+            streamDataIn.progressFunc = progressFunc;
+        }
+        else
+            c.log->LogError("Net:: ExpectStreamTransfer called during an ongoing stream transfer");
+    }
+
     std::function<void(u8*, int)> handleReliablePacket = [this](u8* data, int len)
     {
         if (len < 6)

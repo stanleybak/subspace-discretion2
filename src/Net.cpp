@@ -38,9 +38,6 @@ struct NetData
         c.net->AddPacketHandler("sync pong", coreHandlers.handleSyncPong);
         c.net->AddPacketHandler("sync request", coreHandlers.handleSyncRequest);
         c.net->AddPacketHandler("keep alive", coreHandlers.handleKeepAlive);
-        /*c.net->AddPacketHandler("encryption response", coreHandlers.handleEncryptionResponse);
-        c.net->AddPacketHandler("password response", coreHandlers.handlePasswordResponse);
-        c.net->AddPacketHandler("disconnect", coreHandlers.handleDisconnect);*/
     }
 
     ~NetData()
@@ -393,4 +390,10 @@ void Net::SendReliablePacket(PacketInstance* packet)
 void Net::PumpPacket(u8* bytes, i32 len)
 {
     data->PumpPacket(bytes, len);
+}
+
+void Net::ExpectStreamTransfer(std::function<void()> abortFunc,
+                               std::function<void(i32, i32)> progressFunc)
+{
+    data->coreHandlers.ExpectStreamTransfer(abortFunc, progressFunc);
 }

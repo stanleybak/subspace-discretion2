@@ -29,6 +29,8 @@ class Net : public Module
     void SendPacket(PacketInstance* packet);
     void SendReliablePacket(PacketInstance* packet);
 
+    void ExpectStreamTransfer(std::function<void()> abortFunc,
+                              std::function<void(i32, i32)> progressFunc);
     void PumpPacket(u8* data, i32 len);
 
     // periodically called
