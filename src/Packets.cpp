@@ -644,7 +644,7 @@ struct PacketsData
             }
             else if (te->type == FT_INT)
             {
-                int val = pi->GetValue(fieldName->c_str());
+                int val = pi->GetIntValue(fieldName->c_str());
 
                 if (i->length == 1)
                     (*data)[cur] = val;
@@ -657,31 +657,28 @@ struct PacketsData
             }
             else if (te->type == FT_STRING)
             {
-                pi->GetValue(fieldName->c_str(), (char*)(&((*data)[0]) + cur), i->length);
+                const string* s = pi->GetStringValue(fieldName->c_str());
+
+                for (u32 letter = 0; letter < (u32)i->length; ++letter)
+                    (*data)[cur + letter] = letter < s->length() ? (*s)[letter] : 0;
 
                 cur += i->length;
             }
             else if (te->type == FT_NTSTRING)
             {
-                string* val = &(pi->cStrValues[fieldName->c_str()]);
+                const string* s = pi->GetStringValue(fieldName->c_str());
 
-                for (int x = 0; x < (int)val->length(); ++x)
-                {
-                    (*data)[cur++] = (*val)[x];
-                }
+                for (int x = 0; x < (int)s->length(); ++x)
+                    (*data)[cur++] = (*s)[x];
 
                 (*data)[cur++] = '\0';  // null terminated!
             }
             else if (te->type == FT_RAW)
             {
-                int rawlen;
-                const u8* rawdata = pi->GetValue(fieldName->c_str(), &rawlen);
+                const vector<u8>* rawVec = pi->GetRawValue(fieldName->c_str());
 
-                if (rawdata != nullptr)
-                {
-                    for (int x = 0; x < rawlen; ++x)
-                        (*data)[cur++] = rawdata[x];
-                }
+                for (u32 x = 0; x < rawVec->size(); ++x)
+                    (*data)[cur++] = (*rawVec)[x];
             }
         }
 
@@ -734,42 +731,17 @@ void Packets::PacketTemplateToRaw(PacketInstance* packet, bool reliable, vector<
     data->PacketTemplateToRaw(packet, reliable, rawData);
 }
 
-int PacketInstance::GetValue(const char* type) const
+i32 PacketInstance::GetIntValue(const char* type)
 {
-    int rv = 0;
-
-    map<string, int>::const_iterator i = intValues.find(type);
-
-    if (i != intValues.end())
-        rv = i->second;
-
-    return rv;
+    return intValues[type];
 }
 
-void PacketInstance::GetValue(const char* type, char* store, int len) const
+const string* PacketInstance::GetStringValue(const char* type)
 {
-    map<string, string>::const_iterator i = cStrValues.find(type);
-
-    // pad storage with 0's
-    for (int x = 0; x < len; ++x)
-        store[x] = 0;
-
-    if (i != cStrValues.end())
-        snprintf(store, len, "%s", i->second.c_str());
+    return &cStrValues[type];
 }
 
-const u8* PacketInstance::GetValue(const char* type, int* rawLen) const
+const vector<u8>* PacketInstance::GetRawValue(const char* type)
 {
-    const u8* rv = nullptr;
-    *rawLen = 0;
-
-    map<string, vector<u8>>::const_iterator i = rawValues.find(type);
-
-    if (i != rawValues.end())
-    {
-        rv = &(i->second[0]);  // hmm... assumes vector is of type u8* internally, not ideal
-        *rawLen = (int)i->second.size();
-    }
-
-    return rv;
+    return &rawValues[type];
 }

@@ -282,8 +282,7 @@ struct NetCoreHanders
         }
     };
 
-    std::function<void(const PacketInstance*)> handleCancelStreamResponse =
-        [this](const PacketInstance* pi)
+    std::function<void(PacketInstance*)> handleCancelStreamResponse = [this](PacketInstance* pi)
     {
         if (streamDataIn.len == STREAM_LEN_UNINITIALIZED)
             c.log->LogError("Got cancel stream ack when stream is not initialized");
@@ -293,10 +292,9 @@ struct NetCoreHanders
         streamDataIn.reset();
     };
 
-    std::function<void(const PacketInstance*)> handleReliableReponse =
-        [this](const PacketInstance* pi)
+    std::function<void(PacketInstance*)> handleReliableReponse = [this](PacketInstance* pi)
     {
-        u32 id = pi->GetValue("id");
+        u32 id = pi->GetIntValue("id");
 
         // remove it from the relPackets queue
         for (list<QueuedReliablePacket>::iterator i = relPackets.begin(); i != relPackets.end();
@@ -310,23 +308,23 @@ struct NetCoreHanders
         }
     };
 
-    std::function<void(const PacketInstance*)> handleKeepAlive = [this](const PacketInstance* pi)
+    std::function<void(PacketInstance*)> handleKeepAlive = [this](PacketInstance* pi)
     {
         // the server sends these so we don't think we've disconnected
     };
 
-    std::function<void(const PacketInstance*)> handleSyncRequest = [this](const PacketInstance* pi)
+    std::function<void(PacketInstance*)> handleSyncRequest = [this](PacketInstance* pi)
     {
         PacketInstance p("sync ping");
         p.SetValue("timestamp", SDL_GetTicks() / 10);
         c.net->SendPacket(&p);
     };
 
-    std::function<void(const PacketInstance*)> handleSyncPong = [this](const PacketInstance* pi)
+    std::function<void(PacketInstance*)> handleSyncPong = [this](PacketInstance* pi)
     {
         int myTime = SDL_GetTicks() / 10;
-        int serverTime = pi->GetValue("server timestamp");
-        int sentTime = pi->GetValue("original timestamp");
+        int serverTime = pi->GetIntValue("server timestamp");
+        int sentTime = pi->GetIntValue("original timestamp");
         int roundTripCentiseconds = (myTime - sentTime);
 
         // printf(":coreHandlers, got sync pong, time = %i, time/10=%i\n", util->getMilliseconds(),

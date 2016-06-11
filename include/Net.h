@@ -25,7 +25,7 @@ class Net : public Module
     bool NewConnection(const char* hostname, u16 port);
     void DisconnectSocket();
 
-    void AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func);
+    void AddPacketHandler(const char* name, std::function<void(PacketInstance*)> func);
     void SendPacket(PacketInstance* packet);
     void SendReliablePacket(PacketInstance* packet);
 

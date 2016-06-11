@@ -23,7 +23,7 @@ struct NetData
 
     vector<vector<u8>> packetQueue;
 
-    multimap<string, std::function<void(const PacketInstance*)>> nameToFunctionMap;
+    multimap<string, std::function<void(PacketInstance*)>> nameToFunctionMap;
     multimap<PacketType, std::function<void(u8*, i32)>> rawPackedHandlers;
 
     NetData(Client& c) : c(c), coreHandlers(c)
@@ -189,9 +189,9 @@ struct NetData
         }
     }
 
-    void AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func)
+    void AddPacketHandler(const char* name, std::function<void(PacketInstance*)> func)
     {
-        pair<string, std::function<void(const PacketInstance*)>> toInsert(name, func);
+        pair<string, std::function<void(PacketInstance*)>> toInsert(name, func);
 
         if (nameToFunctionMap.find(name) == nameToFunctionMap.end())
         {
@@ -332,8 +332,8 @@ struct NetData
         if (store.templateName != "temp")
         {
             // lookup the template handler
-            pair<multimap<string, std::function<void(const PacketInstance*)>>::iterator,
-                 multimap<string, std::function<void(const PacketInstance*)>>::iterator> range =
+            pair<multimap<string, std::function<void(PacketInstance*)>>::iterator,
+                 multimap<string, std::function<void(PacketInstance*)>>::iterator> range =
                 nameToFunctionMap.equal_range(store.templateName);
 
             for (; range.first != range.second; ++range.first)
@@ -395,7 +395,7 @@ void Net::SendPackets(i32 ms)
         data->FlushRawOutgoingPackets();
 }
 
-void Net::AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func)
+void Net::AddPacketHandler(const char* name, std::function<void(PacketInstance*)> func)
 {
     data->AddPacketHandler(name, func);
 }

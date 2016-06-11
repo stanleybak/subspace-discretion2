@@ -26,9 +26,9 @@ struct PacketInstance
     void SetValue(const char* type, const char* value) { cStrValues[type] = value; }
     void SetValue(const char* type, const vector<u8>* value) { rawValues[type] = *value; }
 
-    int GetValue(const char* type) const;
-    void GetValue(const char* type, char* store, int len) const;
-    const u8* GetValue(const char* type, int* rawLen) const;
+    i32 GetIntValue(const char* type);
+    const string* GetStringValue(const char* type);
+    const vector<u8>* GetRawValue(const char* type);
 
     string templateName;
     map<string, i32> intValues;

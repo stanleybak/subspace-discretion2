@@ -30,7 +30,10 @@ struct SDLmanData
     {
         string text = "FPS: " + to_string(fpsFrameCount);
         fpsText = c.graphics->MakeDrawnText(Layer_Chat, Color_Red, text.c_str());
-        fpsText->SetPosition(100, 20);
+
+        u32 w = 0, h = 0;
+        c.graphics->GetScreenSize(&w, &h);
+        fpsText->SetPosition(w - 50, 20);
 
         fpsFrameCount = 0;
     };

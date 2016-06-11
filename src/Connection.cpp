@@ -207,8 +207,7 @@ struct ConnectionData
         // ignore
     };
 
-    std::function<void(const PacketInstance*)> handlePasswordResponse =
-        [this](const PacketInstance* pi)
+    std::function<void(PacketInstance*)> handlePasswordResponse = [this](PacketInstance* pi)
     {
         if (state == STATUS_SENT_PASSWORD)
         {
@@ -219,7 +218,7 @@ struct ConnectionData
             const int X_RES = 800;
             const int Y_RES = 600;
 
-            u8 loginCode = pi->GetValue("login response");
+            u8 loginCode = pi->GetIntValue("login response");
             char buf[128];
             snprintf(buf, sizeof(buf), "Recevied Password Response: %s (0x%02x)",
                      GetPasswordErrorCode(loginCode), loginCode);
