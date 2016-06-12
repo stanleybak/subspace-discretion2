@@ -32,12 +32,22 @@ struct NetData
         AddRawPacketHandler(make_pair(true, 0x0E), coreHandlers.handleClusterPacket);
         AddRawPacketHandler(make_pair(true, 0x0A), coreHandlers.handleStream);
 
+        AddRawPacketHandler(make_pair(true, 0x08), coreHandlers.handleSmallChunk);
+        AddRawPacketHandler(make_pair(true, 0x09), coreHandlers.handleSmallChunkTail);
+        AddRawPacketHandler(make_pair(false, 0x0f), coreHandlers.handleSettings);
+        AddRawPacketHandler(make_pair(false, 0x29), coreHandlers.handleMapLvzInformation);
+
         AddPacketHandler("reliable response", coreHandlers.handleReliableReponse);
         AddPacketHandler("cancel stream response", coreHandlers.handleCancelStreamResponse);
 
         AddPacketHandler("sync pong", coreHandlers.handleSyncPong);
         AddPacketHandler("sync request", coreHandlers.handleSyncRequest);
-        AddPacketHandler("keep alive", coreHandlers.handleKeepAlive);
+        AddPacketHandler("now in game", coreHandlers.handleNowInGame);
+
+        vector<i32> ignoreTypes = c.cfg->GetIntList("Packets", "Ignore Game Packets");
+
+        for (i32 type : ignoreTypes)
+            AddRawPacketHandler(make_pair(false, (u8)type), coreHandlers.ignoreRawPacket);
     }
 
     ~NetData()
@@ -124,7 +134,7 @@ struct NetData
         auto range = rawPackedHandlers.equal_range(type);
 
         if (range.first == range.second)  // no handlers
-            c.log->LogError("Packet received of type %02x (%s) len = %i, but no handler exists!",
+            c.log->LogError("Packet received of type 0x%02x (%s) len = %i, but no handler exists!",
                             type.second, type.first ? "core packet" : "non-core packet", len);
 
         // call all of the handlers for this type
@@ -176,7 +186,7 @@ struct NetData
 
         while (SDLNet_UDP_Recv(sock, packet))
         {
-            DumpPacket("RECV", (u8*)packet->data, packet->len);
+            // DumpPacket("RECV", (u8*)packet->data, packet->len);
 
             lastData = now;
             PumpPacket(packet->data, packet->len);
@@ -229,7 +239,7 @@ struct NetData
         // statsSentRecently += p->len;
         // statsSentTotal += p->len;
 
-        DumpPacket("SEND", (u8*)p->data, p->len);
+        // DumpPacket("SEND", (u8*)p->data, p->len);
 
         if (!SDLNet_UDP_Send(sock, channel, p))
             c.log->LogError("SDLNet_UDP_Send: %s\n", SDLNet_GetError());
@@ -419,4 +429,9 @@ void Net::ExpectStreamTransfer(std::function<void()> abortFunc,
                                std::function<void(i32, i32)> progressFunc)
 {
     data->coreHandlers.ExpectStreamTransfer(abortFunc, progressFunc);
+}
+
+const ArenaSettings* Net::GetArenaSettings()
+{
+    return &data->coreHandlers.arenaSettings;
 }

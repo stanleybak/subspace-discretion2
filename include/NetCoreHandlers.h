@@ -54,19 +54,39 @@ struct NetCoreHanders
         std::function<void(i32, i32)> progressFunc;  // gotBytes, totalBytes
     };
 
+    struct FileInformation
+    {
+        char filename[16];
+        u32 checksum;
+        u32 size; /* cont only */
+    };
+
     Client& c;
     i32 maxStreamLen = c.cfg->GetInt("Net", "Max File Size Bytes", 4194304);
     i32 reliableResendTime = c.cfg->GetInt("Net", "Reliable Resend Mills", 300);
     i32 reliableWarnRetries = c.cfg->GetInt("Net", "Reliable Warn Retries", 5);
     i32 reliableMaxRetries = c.cfg->GetInt("Net", "Reliable Max Retries", 10);
 
+    ArenaSettings arenaSettings;
+
+    // huge chunk
     StreamData streamDataIn;
+
+    // small chunk
+    vector<u8> smallChunkData;
+
+    // reliable
     list<QueuedReliablePacket> relPackets;
     map<u32, vector<u8>> backloggedPackets;
     u32 nextIncomingReliableId = 0;
     u32 nextOutgoingReliableId = 0;
 
+    // timer sync
     i32 serverTimeOffset = 0;  // the amount of centiseconds the server is ahead of us
+
+    // map info
+    vector<FileInformation> lvzInfo;
+    FileInformation mapInfo;
 
     NetCoreHanders(Client& c) : c(c){};
 
@@ -77,6 +97,10 @@ struct NetCoreHanders
 
         relPackets.clear();
         backloggedPackets.clear();
+
+        streamDataIn.reset();
+        smallChunkData.clear();
+        lvzInfo.clear();
     }
 
     void ResendReliablePackets(i32 ms, vector<vector<u8>>* packetQueue)
@@ -229,6 +253,72 @@ struct NetCoreHanders
         }
     };
 
+    std::function<void(u8*, int)> handleSmallChunk = [this](u8* data, int packet_len)
+    {
+        for (int i = 2; i < packet_len; ++i)
+            smallChunkData.push_back(data[i]);
+    };
+
+    std::function<void(u8*, int)> handleSmallChunkTail = [this](u8* data, int packet_len)
+    {
+        for (int i = 2; i < packet_len; ++i)
+            smallChunkData.push_back(data[i]);
+
+        c.net->PumpPacket(&(smallChunkData[0]), smallChunkData.size());
+
+        smallChunkData.clear();
+    };
+
+    std::function<void(u8*, int)> handleSettings = [this](u8* data, int packet_len)
+    {
+        if (packet_len != sizeof(ArenaSettings))
+            c.log->LogError("Received settings packet expected length (%d) was not %d", packet_len,
+                            sizeof(ArenaSettings));
+        else
+        {
+            c.log->LogDrivel("Got Arena Settings packet (len=%d)", sizeof(ArenaSettings));
+            memcpy(&arenaSettings, data + 1, sizeof(ArenaSettings));
+        }
+    };
+
+    std::function<void(u8*, int)> handleMapLvzInformation = [this](u8* data, int len)
+    {
+        c.log->LogDrivel("Got Map / LVZ information packet (len=%d)", len);
+
+        u8 offset = 1;
+        u8 remainingLen = len - 1;
+        bool didMap = false;
+
+        while (remainingLen != 0)
+        {
+            if (remainingLen < sizeof(FileInformation))
+            {
+                c.log->LogError("Map/Lvz Information packet contained partial data");
+                break;
+            }
+
+            if (!didMap)
+            {
+                didMap = true;
+                memcpy(&mapInfo, data + offset, sizeof(FileInformation));
+            }
+            else
+            {
+                FileInformation f;
+                memcpy(&f, data + offset, sizeof(FileInformation));
+                lvzInfo.push_back(f);
+            }
+
+            offset += sizeof(FileInformation);
+            remainingLen -= sizeof(FileInformation);
+        }
+
+        c.log->LogDrivel("Got info for map '%s' and for %d lvz files.", mapInfo.filename,
+                         lvzInfo.size());
+
+        printf(".NetCoreHandler.cpp working here, after we get the info we should dl the map.\n");
+    };
+
     std::function<void(u8*, int)> handleStream = [this](u8* data, int packet_len)
     {
         if (packet_len < 6)
@@ -308,7 +398,12 @@ struct NetCoreHanders
         }
     };
 
-    std::function<void(PacketInstance*)> handleKeepAlive = [this](PacketInstance* pi)
+    std::function<void(PacketInstance*)> handleNowInGame = [this](PacketInstance* pi)
+    {
+        // we can start sending position packets...
+    };
+
+    std::function<void(u8*, int)> ignoreRawPacket = [this](u8* data, int len)
     {
         // the server sends these so we don't think we've disconnected
     };

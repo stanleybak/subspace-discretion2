@@ -8,6 +8,7 @@
 
 #include "Module.h"
 #include <map>
+#include <vector>
 
 class Config : public Module
 {
@@ -23,6 +24,8 @@ class Config : public Module
 
     double GetDouble(const char* section, const char* name, double default_value);
     double GetDouble(const char* section, const char* name, double def, bool (*IsAllowed)(double));
+
+    vector<i32> GetIntList(const char* section, const char* name);
 
     // may return a null pointer; doesn't use c.log on missing values
     const char* GetStringNoDefault(const char* section, const char* name);

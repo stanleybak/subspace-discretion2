@@ -136,6 +136,46 @@ static void toLower(string* s)
     }
 }
 
+static void StringToList(vector<string>* useThisList, const string* s)
+{
+    string temp;
+
+    int size = (int)s->length();
+
+    for (int x = 0; x < size; ++x)
+    {
+        char c = (*s)[x];
+        // comma seperated list
+        if (c == ',')
+        {
+            int len = (int)temp.length();
+
+            if (len > 0)
+            {
+                // trim any trailing spaces
+                trimTrailingWhitespace(&temp);
+
+                useThisList->push_back(temp);
+                temp.clear();
+            }
+        }
+        else if (!(c == ' ' && temp.length() == 0))
+        {  // anything other than a leading space
+            temp += c;
+        }
+    }
+
+    int len = (int)temp.length();
+
+    if (len > 0)
+    {
+        // trim any trailing spaces
+        trimTrailingWhitespace(&temp);
+
+        useThisList->push_back(temp);
+    }
+}
+
 void Config::LoadSettings(const char* path)
 {
     ifstream fin(path);
@@ -301,6 +341,26 @@ i32 Config::GetInt(const char* section, const char* name, i32 def, bool (*IsAllo
     }
 
     return val;
+}
+
+vector<i32> Config::GetIntList(const char* section, const char* name)
+{
+    vector<i32> rv;
+
+    const char* cLine = GetStringNoDefault(section, name);
+
+    if (cLine)
+    {
+        string line = cLine;
+        vector<string> store;
+
+        StringToList(&store, &line);
+
+        for (string& s : store)
+            rv.push_back(strtol(s.c_str(), 0, 0));
+    }
+
+    return rv;
 }
 
 // may return nullptr

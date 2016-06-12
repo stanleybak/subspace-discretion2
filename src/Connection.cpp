@@ -241,6 +241,7 @@ struct ConnectionData
                 arenaLogin.SetValue("x resolution", X_RES);
                 arenaLogin.SetValue("y resolution", Y_RES);
                 arenaLogin.SetValue("arena number", RANDOM_PUB);
+                arenaLogin.SetValue("lvz", 1);
 
                 c.net->SendReliablePacket(&arenaLogin);
                 c.chat->InternalMessage("Sent Arena Login");

@@ -9,6 +9,7 @@
 
 #include "Module.h"
 #include "Packets.h"
+#include "Settings.h"
 
 const u8 RELIABLE_HEADER = 0x03;
 const u8 CORE_HEADER = 0x00;
@@ -32,6 +33,8 @@ class Net : public Module
     void ExpectStreamTransfer(std::function<void()> abortFunc,
                               std::function<void(i32, i32)> progressFunc);
     void PumpPacket(u8* data, i32 len);
+
+    const ArenaSettings* GetArenaSettings();
 
     // periodically called
     void ReceivePackets(i32 ms);
