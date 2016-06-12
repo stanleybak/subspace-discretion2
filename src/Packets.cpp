@@ -4,6 +4,10 @@
 #include <set>
 using namespace std;
 
+// used as return values for PacketInstance when not found
+static const string emptyString;
+static const vector<u8> emptyVectorU8;
+
 void PutU32(u8* loc, u32 data)
 {
     for (int x = 0; x < 4; ++x)
@@ -23,7 +27,7 @@ void PutU16(u8* loc, u16 data)
 }
 
 // extract a little endian u32
-u32 GetU32(u8* loc)
+u32 GetU32(const u8* loc)
 {
     u32 rv = 0;
 
@@ -36,7 +40,7 @@ u32 GetU32(u8* loc)
     return rv;
 }
 
-u16 GetU16(u8* loc)
+u16 GetU16(const u8* loc)
 {
     u16 rv = 0;
 
@@ -141,7 +145,7 @@ struct PacketsData
         return rv;
     }
 
-    void PopulatePacketInstance(PacketInstance* store, u8* data, int len)
+    void PopulatePacketInstance(PacketInstance* store, const u8* data, int len)
     {
         // packet received: populate the PacketInstance* from raw data
         u16 type = data[0] == CORE_HEADER ? (u16)data[1] : ((u16)data[0]) << 8;
@@ -319,7 +323,7 @@ struct PacketsData
         }
     }
 
-    void LogPacketError(const char* header, u8* data, int len)
+    void LogPacketError(const char* header, const u8* data, int len)
     {
         string msg = header;
         msg += " (len = " + to_string(len) + " bytes):";
@@ -401,6 +405,7 @@ struct PacketsData
 
                 FieldType ft = FieldTypeStringToFieldType(fieldType);  // will report errors
                 i32 fieldLength = 0;
+                snprintf(buf, sizeof(buf), "%s Field %i Length", templateName, x);
 
                 if (ft == FT_NTSTRING || ft == FT_RAW)
                 {
@@ -415,7 +420,6 @@ struct PacketsData
                 }
                 else
                 {
-                    snprintf(buf, sizeof(buf), "%s Field %i Length", templateName, x);
                     fieldLength = c.cfg->GetInt(cat, buf, -1);
                     len += fieldLength;
 
@@ -493,13 +497,12 @@ struct PacketsData
     }
 
     // check to see packet does not contain any extra fields, and that the length is valid
-    bool CheckPacketAgainstTemplate(PacketInstance* packet, PacketTemplate* pt, bool reliable)
+    bool CheckPacketAgainstTemplate(const PacketInstance* packet, PacketTemplate* pt, bool reliable)
     {
         bool rv = true;
 
         // check strings and ntstrings
-        for (map<string, string>::iterator i = packet->cStrValues.begin();
-             i != packet->cStrValues.end(); ++i)
+        for (auto i = packet->cStrValues.begin(); i != packet->cStrValues.end(); ++i)
         {
             bool found = false;
 
@@ -519,7 +522,8 @@ struct PacketsData
                                 "permitted by the packet(%i >= %i)",
                                 i->first.c_str(), i->second.c_str(), len, pt->chunks[x].length);
 
-                            i->second = i->second.substr(0, pt->chunks[x].length - 1);
+                            rv = false;
+                            // i->second = i->second.substr(0, pt->chunks[x].length - 1);
                         }
                     }
 
@@ -537,8 +541,7 @@ struct PacketsData
         }
 
         // check ints
-        for (map<string, int>::iterator i = packet->intValues.begin(); i != packet->intValues.end();
-             ++i)
+        for (auto i = packet->intValues.begin(); i != packet->intValues.end(); ++i)
         {
             bool found = false;
 
@@ -588,7 +591,7 @@ struct PacketsData
         return rv;
     }
 
-    bool CheckPacket(PacketInstance* pi, bool reliable)
+    bool CheckPacket(const PacketInstance* pi, bool reliable)
     {
         bool rv = false;
         PacketTemplate* pt = GetTemplate(pi->templateName.c_str(), true);
@@ -716,12 +719,12 @@ PacketType Packets::GetPacketType(const char* templateName, bool isOutgoing)
     return data->GetPacketType(templateName, isOutgoing);
 }
 
-void Packets::PopulatePacketInstance(PacketInstance* store, u8* bytes, int len)
+void Packets::PopulatePacketInstance(PacketInstance* store, const u8* bytes, int len)
 {
     return data->PopulatePacketInstance(store, bytes, len);
 }
 
-bool Packets::CheckPacket(PacketInstance* pi, bool reliable)
+bool Packets::CheckPacket(const PacketInstance* pi, bool reliable)
 {
     return data->CheckPacket(pi, reliable);
 }
@@ -731,17 +734,44 @@ void Packets::PacketTemplateToRaw(PacketInstance* packet, bool reliable, vector<
     data->PacketTemplateToRaw(packet, reliable, rawData);
 }
 
-i32 PacketInstance::GetIntValue(const char* type)
+i32 PacketInstance::GetIntValue(const char* type) const
 {
-    return intValues[type];
+    i32 rv = 0;
+
+    auto it = intValues.find(type);
+
+    if (it != intValues.end())
+        rv = it->second;
+    else if (c)
+        c->log->LogError("PacketInstance::GetIntValue unknown field '%s'", type);
+
+    return rv;
 }
 
-const string* PacketInstance::GetStringValue(const char* type)
+const string* PacketInstance::GetStringValue(const char* type) const
 {
-    return &cStrValues[type];
+    const string* rv = &emptyString;
+
+    auto it = cStrValues.find(type);
+
+    if (it != cStrValues.end())
+        rv = &(it->second);
+    else if (c)
+        c->log->LogError("PacketInstance::GetStringValue unknown field '%s'", type);
+
+    return rv;
 }
 
-const vector<u8>* PacketInstance::GetRawValue(const char* type)
+const vector<u8>* PacketInstance::GetRawValue(const char* type) const
 {
-    return &rawValues[type];
+    const vector<u8>* rv = &emptyVectorU8;
+
+    auto it = rawValues.find(type);
+
+    if (it != rawValues.end())
+        rv = &(it->second);
+    else if (c)
+        c->log->LogError("PacketInstance::GetRawValue unknown field '%s'", type);
+
+    return rv;
 }

@@ -26,13 +26,13 @@ class Net : public Module
     bool NewConnection(const char* hostname, u16 port);
     void DisconnectSocket();
 
-    void AddPacketHandler(const char* name, std::function<void(PacketInstance*)> func);
+    void AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func);
     void SendPacket(PacketInstance* packet);
     void SendReliablePacket(PacketInstance* packet);
 
     void ExpectStreamTransfer(std::function<void()> abortFunc,
                               std::function<void(i32, i32)> progressFunc);
-    void PumpPacket(u8* data, i32 len);
+    void PumpPacket(const u8* data, i32 len);
 
     const ArenaSettings* GetArenaSettings();
 

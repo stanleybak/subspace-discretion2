@@ -5,7 +5,7 @@ CC=g++
 LN=g++
 
 CFLAGS = -Iinclude -Wall `sdl2-config --cflags`
-LDFLAGS = `sdl2-config --libs`
+LDFLAGS = `sdl2-config --libs` -lz
 
 # use regular or debug cflags
 #CFLAGS += -O3 -std=c++0x

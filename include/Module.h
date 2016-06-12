@@ -9,6 +9,7 @@
 
 #include "Compatibility.h"
 #include "Client.h"
+using namespace std;
 
 class Module
 {

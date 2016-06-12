@@ -23,8 +23,8 @@ struct NetData
 
     vector<vector<u8>> packetQueue;
 
-    multimap<string, std::function<void(PacketInstance*)>> nameToFunctionMap;
-    multimap<PacketType, std::function<void(u8*, i32)>> rawPackedHandlers;
+    multimap<string, std::function<void(const PacketInstance*)>> nameToFunctionMap;
+    multimap<PacketType, std::function<void(const u8*, i32)>> rawPackedHandlers;
 
     NetData(Client& c) : c(c), coreHandlers(c)
     {
@@ -129,7 +129,7 @@ struct NetData
         return rv;
     }
 
-    void ProcessRawTypedPacket(PacketType type, u8* data, int len)
+    void ProcessRawTypedPacket(PacketType type, const u8* data, int len)
     {
         auto range = rawPackedHandlers.equal_range(type);
 
@@ -142,7 +142,7 @@ struct NetData
             range.first->second(data, len);
     }
 
-    void PumpPacket(u8* data, int len)
+    void PumpPacket(const u8* data, int len)
     {
         if (len < 1 || (data[0] == CORE_HEADER && len < 2))
             c.log->LogError("pumpPacket's packet len invalid");
@@ -199,9 +199,9 @@ struct NetData
         }
     }
 
-    void AddPacketHandler(const char* name, std::function<void(PacketInstance*)> func)
+    void AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func)
     {
-        pair<string, std::function<void(PacketInstance*)>> toInsert(name, func);
+        pair<string, std::function<void(const PacketInstance*)>> toInsert(name, func);
 
         if (nameToFunctionMap.find(name) == nameToFunctionMap.end())
         {
@@ -212,7 +212,7 @@ struct NetData
         nameToFunctionMap.insert(toInsert);
     }
 
-    void AddRawPacketHandler(PacketType type, std::function<void(u8*, i32)> func)
+    void AddRawPacketHandler(PacketType type, std::function<void(const u8*, i32)> func)
     {
         rawPackedHandlers.insert(make_pair(type, func));
     }
@@ -334,16 +334,16 @@ struct NetData
     }
 
     // generic raw handler for all template functions which have handler function
-    std::function<void(u8*, i32)> templatePacketRecevied = [this](u8* data, i32 len)
+    std::function<void(const u8*, i32)> templatePacketRecevied = [this](const u8* data, i32 len)
     {
-        PacketInstance store("temp");
+        PacketInstance store(&c, "temp");
         c.packets->PopulatePacketInstance(&store, data, len);
 
         if (store.templateName != "temp")
         {
             // lookup the template handler
-            pair<multimap<string, std::function<void(PacketInstance*)>>::iterator,
-                 multimap<string, std::function<void(PacketInstance*)>>::iterator> range =
+            pair<multimap<string, std::function<void(const PacketInstance*)>>::iterator,
+                 multimap<string, std::function<void(const PacketInstance*)>>::iterator> range =
                 nameToFunctionMap.equal_range(store.templateName);
 
             for (; range.first != range.second; ++range.first)
@@ -405,7 +405,7 @@ void Net::SendPackets(i32 ms)
         data->FlushRawOutgoingPackets();
 }
 
-void Net::AddPacketHandler(const char* name, std::function<void(PacketInstance*)> func)
+void Net::AddPacketHandler(const char* name, std::function<void(const PacketInstance*)> func)
 {
     data->AddPacketHandler(name, func);
 }
@@ -420,7 +420,7 @@ void Net::SendReliablePacket(PacketInstance* packet)
     data->SendPacket(packet, true);
 }
 
-void Net::PumpPacket(u8* bytes, i32 len)
+void Net::PumpPacket(const u8* bytes, i32 len)
 {
     data->PumpPacket(bytes, len);
 }

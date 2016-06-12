@@ -45,6 +45,7 @@
 									<listOptionValue builtIn="false" value="SDL2_net"/>
 									<listOptionValue builtIn="false" value="SDL2_image"/>
 									<listOptionValue builtIn="false" value="SDL2_ttf"/>
+									<listOptionValue builtIn="false" value="z"/>
 								</option>
 								<option id="gnu.cpp.link.option.flags.415772925" name="Linker flags" superClass="gnu.cpp.link.option.flags" value="`sdl2-config --libs` -rdynamic" valueType="string"/>
 								<inputType id="cdt.managedbuild.tool.gnu.cpp.linker.input.1167594739" superClass="cdt.managedbuild.tool.gnu.cpp.linker.input">
@@ -108,6 +109,7 @@
 									<listOptionValue builtIn="false" value="SDL2_net"/>
 									<listOptionValue builtIn="false" value="SDL2_image"/>
 									<listOptionValue builtIn="false" value="SDL2_ttf"/>
+									<listOptionValue builtIn="false" value="z"/>
 								</option>
 								<inputType id="cdt.managedbuild.tool.gnu.cpp.linker.input.1118211053" superClass="cdt.managedbuild.tool.gnu.cpp.linker.input">
 									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>

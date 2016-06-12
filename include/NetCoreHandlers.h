@@ -6,6 +6,7 @@
 
 #include "Client.h"
 #include "Connection.h"
+#include "Map.h"
 #include <SDL/SDL.h>
 #include <vector>
 #include <list>
@@ -58,7 +59,7 @@ struct NetCoreHanders
     {
         char filename[16];
         u32 checksum;
-        u32 size; /* cont only */
+        u32 compressedSize;
     };
 
     Client& c;
@@ -175,7 +176,7 @@ struct NetCoreHanders
             c.log->LogError("Net:: ExpectStreamTransfer called during an ongoing stream transfer");
     }
 
-    std::function<void(u8*, int)> handleReliablePacket = [this](u8* data, int len)
+    std::function<void(const u8*, int)> handleReliablePacket = [this](const u8* data, int len)
     {
         if (len < 6)
             c.log->LogError("Got Reliable packet of length < 6");
@@ -236,7 +237,7 @@ struct NetCoreHanders
         }
     };
 
-    std::function<void(u8*, int)> handleClusterPacket = [this](u8* data, int len)
+    std::function<void(const u8*, int)> handleClusterPacket = [this](const u8* data, int len)
     {
         int curOffset = 2;
 
@@ -253,13 +254,14 @@ struct NetCoreHanders
         }
     };
 
-    std::function<void(u8*, int)> handleSmallChunk = [this](u8* data, int packet_len)
+    std::function<void(const u8*, int)> handleSmallChunk = [this](const u8* data, int packet_len)
     {
         for (int i = 2; i < packet_len; ++i)
             smallChunkData.push_back(data[i]);
     };
 
-    std::function<void(u8*, int)> handleSmallChunkTail = [this](u8* data, int packet_len)
+    std::function<void(const u8*, int)> handleSmallChunkTail =
+        [this](const u8* data, int packet_len)
     {
         for (int i = 2; i < packet_len; ++i)
             smallChunkData.push_back(data[i]);
@@ -269,7 +271,7 @@ struct NetCoreHanders
         smallChunkData.clear();
     };
 
-    std::function<void(u8*, int)> handleSettings = [this](u8* data, int packet_len)
+    std::function<void(const u8*, int)> handleSettings = [this](const u8* data, int packet_len)
     {
         if (packet_len != sizeof(ArenaSettings))
             c.log->LogError("Received settings packet expected length (%d) was not %d", packet_len,
@@ -281,7 +283,7 @@ struct NetCoreHanders
         }
     };
 
-    std::function<void(u8*, int)> handleMapLvzInformation = [this](u8* data, int len)
+    std::function<void(const u8*, int)> handleMapLvzInformation = [this](const u8* data, int len)
     {
         c.log->LogDrivel("Got Map / LVZ information packet (len=%d)", len);
 
@@ -313,19 +315,30 @@ struct NetCoreHanders
             remainingLen -= sizeof(FileInformation);
         }
 
-        c.log->LogDrivel("Got info for map '%s' and for %d lvz files.", mapInfo.filename,
-                         lvzInfo.size());
+        if (!didMap)
+            c.log->LogError("Map Info packet did not actually contain the map data entry");
+        else
+        {
+            c.log->LogDrivel("Got info for map '%s' and for %d lvz files.", mapInfo.filename,
+                             lvzInfo.size());
 
-        printf(".NetCoreHandler.cpp working here, after we get the info we should dl the map.\n");
+            string mapFile = SanitizeString(mapInfo.filename);
+            c.map->GotMapInfo(mapFile.c_str(), mapInfo.checksum, mapInfo.compressedSize);
+        }
     };
 
-    std::function<void(u8*, int)> handleStream = [this](u8* data, int packet_len)
+    std::function<void(const u8*, int)> handleStream = [this](const u8* data, int packet_len)
     {
         if (packet_len < 6)
             c.log->LogError("Got Stream packet of length < 6");
         else
         {
             u32 len = GetU32(data + 2);
+
+            c.log->LogDrivel(
+                "Got a huge chunk packet with declared len=%d "
+                "(current status %d/%d)",
+                len, streamDataIn.data.size(), streamDataIn.len);
 
             if (len == 0)
                 c.log->LogError("stream length = 0; not allowed");
@@ -363,6 +376,8 @@ struct NetCoreHanders
 
                     if ((int)streamDataIn.data.size() == streamDataIn.len)
                     {
+                        c.log->LogDrivel("Pumping packet from huge chunk transfer of type 0x%02x",
+                                         streamDataIn.data[0]);
                         c.net->PumpPacket(&(streamDataIn.data[0]), streamDataIn.len);
 
                         streamDataIn.reset();
@@ -372,7 +387,8 @@ struct NetCoreHanders
         }
     };
 
-    std::function<void(PacketInstance*)> handleCancelStreamResponse = [this](PacketInstance* pi)
+    std::function<void(const PacketInstance*)> handleCancelStreamResponse =
+        [this](const PacketInstance* pi)
     {
         if (streamDataIn.len == STREAM_LEN_UNINITIALIZED)
             c.log->LogError("Got cancel stream ack when stream is not initialized");
@@ -382,7 +398,8 @@ struct NetCoreHanders
         streamDataIn.reset();
     };
 
-    std::function<void(PacketInstance*)> handleReliableReponse = [this](PacketInstance* pi)
+    std::function<void(const PacketInstance*)> handleReliableReponse =
+        [this](const PacketInstance* pi)
     {
         u32 id = pi->GetIntValue("id");
 
@@ -398,24 +415,24 @@ struct NetCoreHanders
         }
     };
 
-    std::function<void(PacketInstance*)> handleNowInGame = [this](PacketInstance* pi)
+    std::function<void(const PacketInstance*)> handleNowInGame = [this](const PacketInstance* pi)
     {
         // we can start sending position packets...
     };
 
-    std::function<void(u8*, int)> ignoreRawPacket = [this](u8* data, int len)
+    std::function<void(const u8*, int)> ignoreRawPacket = [this](const u8* data, int len)
     {
         // the server sends these so we don't think we've disconnected
     };
 
-    std::function<void(PacketInstance*)> handleSyncRequest = [this](PacketInstance* pi)
+    std::function<void(const PacketInstance*)> handleSyncRequest = [this](const PacketInstance* pi)
     {
         PacketInstance p("sync ping");
         p.SetValue("timestamp", SDL_GetTicks() / 10);
         c.net->SendPacket(&p);
     };
 
-    std::function<void(PacketInstance*)> handleSyncPong = [this](PacketInstance* pi)
+    std::function<void(const PacketInstance*)> handleSyncPong = [this](const PacketInstance* pi)
     {
         int myTime = SDL_GetTicks() / 10;
         int serverTime = pi->GetIntValue("server timestamp");

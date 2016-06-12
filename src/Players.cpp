@@ -94,14 +94,14 @@ struct PlayersModuleData
         }
     }
 
-    std::function<void(PacketInstance*)> handlePidChange = [this](PacketInstance* pi)
+    std::function<void(const PacketInstance*)> handlePidChange = [this](const PacketInstance* pi)
     {
         selfData->pid = pi->GetIntValue("pid");
 
         c.log->LogDrivel("Got Self PID change to %i", selfData->pid);
     };
 
-    std::function<void(PacketInstance*)> playerLeaving = [this](PacketInstance* pi)
+    std::function<void(const PacketInstance*)> playerLeaving = [this](const PacketInstance* pi)
     {
         i32 pid = pi->GetIntValue("pid");
 
@@ -111,7 +111,7 @@ struct PlayersModuleData
         c.log->LogDrivel("Player Left (pid=%i)", pid);
     };
 
-    std::function<void(PacketInstance*)> playerEntering = [this](PacketInstance* pi)
+    std::function<void(const PacketInstance*)> playerEntering = [this](const PacketInstance* pi)
     {
         shared_ptr<PlayerData> player;
         i32 pid = pi->GetIntValue("pid");
@@ -141,7 +141,7 @@ struct PlayersModuleData
         c.log->LogDrivel("Player Entering (pid=%i,name=%s)", player->pid, player->name.c_str());
     };
 
-    std::function<void(PacketInstance*)> freqChange = [this](PacketInstance* pi)
+    std::function<void(const PacketInstance*)> freqChange = [this](const PacketInstance* pi)
     {
         i32 pid = pi->GetIntValue("pid");
         i32 freq = pi->GetIntValue("freq");
@@ -153,7 +153,7 @@ struct PlayersModuleData
         c.log->LogDrivel("Freq Change to %i (pid=%i)", freq, pid);
     };
 
-    std::function<void(PacketInstance*)> freqShipChanged = [this](PacketInstance* pi)
+    std::function<void(const PacketInstance*)> freqShipChanged = [this](const PacketInstance* pi)
     {
         i32 pid = pi->GetIntValue("pid");
         i32 freq = pi->GetIntValue("freq");

@@ -33,7 +33,7 @@ struct SDLmanData
 
         u32 w = 0, h = 0;
         c.graphics->GetScreenSize(&w, &h);
-        fpsText->SetPosition(w - 50, 20);
+        fpsText->SetPosition(w - 100, 20);
 
         fpsFrameCount = 0;
     };

@@ -1,9 +1,43 @@
 #include <SDL2/SDL.h>
 #include "Connection.h"
 #include "Packets.h"
+#include "Graphics.h"
 #include "Net.h"
 #include "Chat.h"
 using namespace std;
+
+// mkdir compat
+#ifdef WIN32
+#include <direct.h>
+
+#define MKDIR(a) _mkdir(a)
+#define MKDIR_ERROR_ERRNO (ENOENT)
+
+#else
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <errno.h>
+// Default to 744 permissions
+#define MKDIR(a) mkdir(a, S_IRWXU | S_IRGRP | S_IROTH)
+#define MKDIR_ERROR_ERRNO (ENOENT)
+#endif
+
+string SanitizeString(const char* input)
+{
+    string rv = "";
+
+    for (int i = 0; i < input[i]; ++i)
+    {
+        char c = input[i];
+
+        if ((isalnum(c) || c == '-' || c == '_') || (rv.length() > 0 && (c == ' ' || c == '.')))
+            rv += c;
+        else
+            rv += '_';
+    }
+
+    return rv;
+}
 
 static const char* PASSWORD_RESPONSE_MOD_ERROR = "Restricted Zone, Mod Access Required";
 static const char* PASSWORD_RESPONSE_UNDEF_ERROR = "Undefined Error Code";
@@ -58,6 +92,9 @@ struct ConnectionData
     i32 connectRetryMs = c.cfg->GetInt("Net", "Connection Retry Delay Mills", 1000);
     i32 maxConnectionAttempts = c.cfg->GetInt("Net", "Max Connection Attempts", 10);
 
+    string zoneDirName;   // set when Connection::Connect() is called
+    string arenaDirName;  // set when Connection::SendArenaLogin() is called
+
     std::function<void(const char*)> connectFunc = [this](const char* textUtf8)
     {
         if (string("?connect") == textUtf8)
@@ -83,8 +120,12 @@ struct ConnectionData
                         c.chat->InternalMessage(string("Port out of range (expected 1-65535):" +
                                                        string(portStr)).c_str());
                     else
-                        c.connection->Connect(username.c_str(), password.c_str(), hostname.c_str(),
-                                              (u16)(port));
+                    {
+                        // todo: add real zone name handling here
+                        string zone = "custom_" + hostname;
+                        c.connection->Connect(username.c_str(), password.c_str(), zone.c_str(),
+                                              hostname.c_str(), (u16)(port));
+                    }
                 }
             }
         }
@@ -151,6 +192,12 @@ struct ConnectionData
 
     ConnectionData(Client& client) : c(client) {}
 
+    void MakeDir(const char* path)
+    {
+        if (MKDIR(path) != 0 && errno == MKDIR_ERROR_ERRNO)
+            c.log->FatalError("mkdir failed on path: '%s'", path);
+    }
+
     void SendConnectRequest()
     {
         PacketInstance p("encryption request");
@@ -166,7 +213,8 @@ struct ConnectionData
         c.log->LogDrivel("Sent First Encryption Request");
     }
 
-    void Connect(const char* username, const char* password, const char* hostname, u16 port)
+    void Connect(const char* username, const char* password, const char* zoneNameCstr,
+                 const char* hostname, u16 port)
     {
         string msg = "Connecting to " + string(hostname) + " using port " + to_string(port);
         c.chat->InternalMessage(msg.c_str());
@@ -175,6 +223,8 @@ struct ConnectionData
             c.log->LogError("connect() called when state is not STATUS_NOT_CONNECTED");
         else if (c.net->NewConnection(hostname, port))
         {
+            zoneDirName = SanitizeString(zoneNameCstr);
+
             SendConnectRequest();
         }
     }
@@ -207,16 +257,12 @@ struct ConnectionData
         // ignore
     };
 
-    std::function<void(PacketInstance*)> handlePasswordResponse = [this](PacketInstance* pi)
+    std::function<void(const PacketInstance*)> handlePasswordResponse =
+        [this](const PacketInstance* pi)
     {
         if (state == STATUS_SENT_PASSWORD)
         {
             const int LOGIN_OK = 0x00;
-            const int SHIP_SPEC = 0x08;
-            const int RANDOM_PUB = 0xFFFF;
-
-            const int X_RES = 800;
-            const int Y_RES = 600;
 
             u8 loginCode = pi->GetIntValue("login response");
             char buf[128];
@@ -234,17 +280,7 @@ struct ConnectionData
                 c.net->ExpectStreamTransfer(nullptr, nullptr);
 
                 // send arena login
-                PacketInstance arenaLogin("arena login");
-
-                arenaLogin.SetValue("ship", SHIP_SPEC);
-                arenaLogin.SetValue("allow audio", 1);
-                arenaLogin.SetValue("x resolution", X_RES);
-                arenaLogin.SetValue("y resolution", Y_RES);
-                arenaLogin.SetValue("arena number", RANDOM_PUB);
-                arenaLogin.SetValue("lvz", 1);
-
-                c.net->SendReliablePacket(&arenaLogin);
-                c.chat->InternalMessage("Sent Arena Login");
+                c.connection->SendArenaLoginAnyPub(Ship_Spec);
 
                 state = STATUS_SENT_ARENA_REQUEST;
             }
@@ -289,9 +325,10 @@ Connection::~Connection()
 {
 }
 
-void Connection::Connect(const char* name, const char* pw, const char* hostname, u16 port)
+void Connection::Connect(const char* name, const char* pw, const char* zonename,
+                         const char* hostname, u16 port)
 {
-    data->Connect(name, pw, hostname, port);
+    data->Connect(name, pw, zonename, hostname, port);
 }
 
 bool Connection::isCompletelyDisconnected()
@@ -349,4 +386,92 @@ void Connection::UpdateConnectionStatus(i32 ms)
 const char* Connection::GetPlayerName()
 {
     return data->username.c_str();
+}
+
+void Connection::SendArenaLogin(ShipType s, const char* arenaName_cstr)
+{
+    const int NAMED_ARENA = 0xFFFD;
+    string arena = arenaName_cstr;
+
+    if (arena.length() > 15)
+        arena = arena.substr(0, 16);
+
+    u32 screenW, screenH;
+    c.graphics->GetScreenSize(&screenW, &screenH);
+
+    PacketInstance arenaLogin("arena login");
+
+    arenaLogin.SetValue("ship", (u8)s);
+    arenaLogin.SetValue("allow audio", 1);
+    arenaLogin.SetValue("x resolution", screenW);
+    arenaLogin.SetValue("y resolution", screenH);
+    arenaLogin.SetValue("arena number", NAMED_ARENA);
+    arenaLogin.SetValue("arena name", arena.c_str());
+    arenaLogin.SetValue("lvz", 1);
+
+    c.net->SendReliablePacket(&arenaLogin);
+    c.log->LogDrivel("Sent Arena Login for specific arena '%s'", arena.c_str());
+
+    data->arenaDirName = SanitizeString(arena.c_str());
+}
+
+void Connection::SendArenaLoginAnyPub(ShipType s)
+{
+    const int RANDOM_PUB = 0xFFFF;
+
+    u32 screenW, screenH;
+    c.graphics->GetScreenSize(&screenW, &screenH);
+
+    PacketInstance arenaLogin("arena login");
+
+    arenaLogin.SetValue("ship", (u8)s);
+    arenaLogin.SetValue("allow audio", 1);
+    arenaLogin.SetValue("x resolution", screenW);
+    arenaLogin.SetValue("y resolution", screenH);
+    arenaLogin.SetValue("arena number", RANDOM_PUB);
+    arenaLogin.SetValue("lvz", 1);
+
+    c.net->SendReliablePacket(&arenaLogin);
+    c.log->LogDrivel("Sent Arena Login for any pub");
+
+    data->arenaDirName = "(public)";
+}
+
+void Connection::SendArenaLoginSpecificPub(ShipType s, u16 num)
+{
+    u32 screenW, screenH;
+    c.graphics->GetScreenSize(&screenW, &screenH);
+
+    PacketInstance arenaLogin("arena login");
+
+    arenaLogin.SetValue("ship", (u8)s);
+    arenaLogin.SetValue("allow audio", 1);
+    arenaLogin.SetValue("x resolution", screenW);
+    arenaLogin.SetValue("y resolution", screenH);
+    arenaLogin.SetValue("arena number", num);
+    arenaLogin.SetValue("lvz", 1);
+
+    c.net->SendReliablePacket(&arenaLogin);
+    c.log->LogDrivel("Sent Arena Login for specific pub %d", num);
+
+    data->arenaDirName = "(public)";
+}
+
+string Connection::GetArenaDir()
+{
+    string rv = GetZoneDir() + "/" + data->arenaDirName + "/";
+
+    data->MakeDir(rv.c_str());
+
+    return rv;
+}
+
+string Connection::GetZoneDir()
+{
+    string rv = "zones/" + data->zoneDirName + "/";
+
+    data->MakeDir("zones");
+    data->MakeDir(rv.c_str());
+
+    return rv;
 }

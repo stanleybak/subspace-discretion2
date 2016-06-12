@@ -10,6 +10,7 @@
 #include "Packets.h"
 #include "Connection.h"
 #include "Players.h"
+#include "Map.h"
 
 #ifdef WIN32
 void PrintStackTrace()
@@ -166,7 +167,8 @@ Client::Client()
       chat(make_shared<Chat>(*this)),
       ships(make_shared<Ships>(*this)),
       connection(make_shared<Connection>(*this)),
-      players(make_shared<Players>(*this))
+      players(make_shared<Players>(*this)),
+      map(make_shared<Map>(*this))
 {
 }
 

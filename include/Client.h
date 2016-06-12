@@ -23,6 +23,7 @@ class Net;
 class Packets;
 class Connection;
 class Players;
+class Map;
 
 // only works on non-windows
 void PrintStackTrace();
@@ -47,4 +48,5 @@ class Client
     shared_ptr<Ships> ships;
     shared_ptr<Connection> connection;
     shared_ptr<Players> players;
+    shared_ptr<Map> map;
 };

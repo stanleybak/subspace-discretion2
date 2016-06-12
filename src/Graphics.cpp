@@ -397,12 +397,18 @@ SDL_Surface* GraphicsData::LoadSurface(const string* path)
     SDL_Surface* surface = nullptr;
 
     if (strchr(path->c_str(), '.') != nullptr)
+    {
         surface = IMG_Load(path->c_str());
+
+        if (!surface)
+            c.log->LogError("Error loading image '%s': %s", path->c_str(), IMG_GetError());
+    }
     else
     {
         // try a bunch of image extensions
-        const char* exts[] = {".png", ".bmp", ".jpg", ".gif", ".tif", ".jpeg", ".tiff", ".pnm",
-                              ".ppm", ".pgm", ".pbm", ".xpm", ".lbm", ".pcx",  ".tga"};
+        const char* exts[] = {".png",  ".bmp",  ".bm2", ".jpg", ".gif", ".tif",
+                              ".jpeg", ".tiff", ".pnm", ".ppm", ".pgm", ".pbm",
+                              ".xpm",  ".lbm",  ".pcx", ".tga", ""};
 
         for (const char* ext : exts)
         {
