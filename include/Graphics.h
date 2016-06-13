@@ -119,6 +119,9 @@ class Graphics : public Module
                                         u32 animNumFrames);
     shared_ptr<Animation> InitAnimation(shared_ptr<Image> i, u32 animMs);
 
+    // call during draw loop
+    void DrawImageFrame(shared_ptr<Image> i, i32 frame, i32 pixelX, i32 pixelY);
+
    private:
     shared_ptr<GraphicsData> data;
 };

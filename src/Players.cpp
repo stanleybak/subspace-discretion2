@@ -9,8 +9,8 @@ struct PlayersModuleData
 {
     Client& c;
 
-    shared_ptr<PlayerData> selfData = make_shared<PlayerData>();
-    map<i32, shared_ptr<PlayerData>> idToPlayerMap;
+    shared_ptr<Player> selfData = make_shared<Player>();
+    map<i32, shared_ptr<Player>> idToPlayerMap;
 
     vector<shared_ptr<DrawnText>> displayedNames;
 
@@ -113,13 +113,13 @@ struct PlayersModuleData
 
     std::function<void(const PacketInstance*)> playerEntering = [this](const PacketInstance* pi)
     {
-        shared_ptr<PlayerData> player;
+        shared_ptr<Player> player;
         i32 pid = pi->GetIntValue("pid");
 
         if (pid == selfData->pid)
             player = selfData;
         else
-            player = make_shared<PlayerData>();
+            player = make_shared<Player>();
 
         player->name = *pi->GetStringValue("name");
         player->squad = *pi->GetStringValue("squad");
@@ -183,9 +183,9 @@ Players::Players(Client& c) : Module(c), data(make_shared<PlayersModuleData>(c))
     c.net->AddPacketHandler("freq ship changed", data->freqShipChanged);
 }
 
-shared_ptr<PlayerData> Players::GetPlayerData(i32 pid)
+shared_ptr<Player> Players::GetPlayer(i32 pid)
 {
-    shared_ptr<PlayerData> rv = nullptr;
+    shared_ptr<Player> rv = nullptr;
     auto it = data->idToPlayerMap.find(pid);
 
     if (it == data->idToPlayerMap.end())
@@ -194,12 +194,40 @@ shared_ptr<PlayerData> Players::GetPlayerData(i32 pid)
         rv = it->second;
 
     if (rv == nullptr)
-        c.log->LogError("Players::GetPlayerData(id) failed to find player with pid %i", pid);
+        c.log->LogError("Players::GetPlayer(id) failed to find player with pid %i", pid);
 
     return rv;
+}
+
+shared_ptr<Player> Players::GetSelfPlayer()
+{
+    if (data->selfData == nullptr)
+        c.log->LogError("Players::GetSelfPlayer(id) returning nullptr");
+
+    return data->selfData;
 }
 
 void Players::UpdatePlayerList()
 {
     data->UpdatePlayerList();
+}
+
+i32 Player::GetXPixel()
+{
+    return physics.x / 10000;
+}
+
+i32 Player::GetYPixel()
+{
+    return physics.y / 10000;
+}
+
+i32 Player::GetXTile()
+{
+    return physics.x / 10000 / 16;
+}
+
+i32 Player::GetYTile()
+{
+    return physics.y / 10000 / 16;
 }

@@ -5,6 +5,7 @@
 #include "Net.h"
 #include "zlib.h"
 #include <fstream>
+using namespace std;
 
 unique_ptr<u8[]> ZlibDecompress(Client& c, const u8* src, int len, i32* decompressedLen)
 {
@@ -47,6 +48,10 @@ struct TileStruct
 
 struct MapData
 {
+    const int MAP_TILES_WIDTH = 1024;
+    const int MAP_TILES_HEIGHT = 1024;
+    const int PIXELS_PER_TILE = 16;
+
     MapData(Client& c) : c(c) {}
 
     Client& c;
@@ -183,8 +188,6 @@ struct MapData
         }
         else
         {
-            int MAP_TILES_WIDTH = 1024;
-            int MAP_TILES_HEIGHT = 1024;
             // load it
             ifstream fin(path, ios::binary);
 
@@ -266,6 +269,49 @@ struct MapData
 
         c.map->SetMapPath(savePath.c_str());
     };
+
+    void DrawMap()
+    {
+        shared_ptr<Player> p = c.players->GetSelfPlayer();
+        i32 playerX = p->GetXPixel();
+        i32 playerY = p->GetYPixel();
+        u32 w = 0, h = 0;
+
+        c.graphics->GetScreenSize(&w, &h);
+
+        i32 topPixel = playerY - h / 2;
+        i32 topTile = topPixel / PIXELS_PER_TILE - 1;
+        i32 bottomTile = topTile + h / PIXELS_PER_TILE + 2;
+
+        i32 leftPixel = playerX - w / 2;
+        i32 leftTile = leftPixel / PIXELS_PER_TILE - 1;
+        i32 rightTile = leftTile + w / PIXELS_PER_TILE + 2;
+
+        i32 drawOffsetX = w / 2 - playerX;
+        i32 drawOffsetY = h / 2 - playerY;
+
+        for (i32 y = topTile; y < bottomTile; ++y)
+        {
+            if (y < 0 || y >= MAP_TILES_HEIGHT)
+                continue;
+
+            for (i32 x = leftTile; x < rightTile; ++x)
+            {
+                if (x < 0 || x >= MAP_TILES_WIDTH)
+                    continue;
+
+                u8 tile = theMap[y * MAP_TILES_WIDTH + x];
+
+                if (tile > 0 && tile <= 190)  // over 162 is special tile?
+                {
+                    i32 xpos = x * 16 + drawOffsetX;
+                    i32 ypos = y * 16 + drawOffsetY;
+
+                    c.graphics->DrawImageFrame(curTileset, tile - 1, xpos, ypos);
+                }
+            }
+        }
+    }
 };
 
 Map::Map(Client& c) : Module(c), data(make_shared<MapData>(c))
@@ -281,4 +327,10 @@ void Map::GotMapInfo(const char* filename, u32 checksum, u32 compressedSize)
 void Map::SetMapPath(const char* path)
 {
     data->SetMapPath(path);
+}
+
+void Map::DrawMap()
+{
+    if (data->theMap)
+        data->DrawMap();
 }

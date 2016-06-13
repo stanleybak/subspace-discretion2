@@ -1,5 +1,7 @@
 #include "Graphics.h"
 #include "SDLman.h"
+#include "Map.h"
+
 #include "SDL2/SDL_ttf.h"
 #include "utf8.h"
 #include <map>
@@ -96,6 +98,7 @@ struct GraphicsData
                        const char* utf8);
     void MakeWrappedTextSurfaces(vector<SDL_Surface*>& surfStore, vector<string>& lines,
                                  SDL_Surface* nameSurface, SDL_Color textColor, i32 wrapPixels);
+    void DrawImageFrame(shared_ptr<Image> i, i32 frame, i32 pixelX, i32 pixelY);
 
     u32 nowMs = 0;  // for tracking single animation expiration time
     multimap<Layer, DrawnObject*> drawnObjs;
@@ -113,6 +116,29 @@ struct GraphicsData
         {Color_Pink, {0xff, 0xb5, 0xb5, 255}},
     };
 };
+
+void GraphicsData::DrawImageFrame(shared_ptr<Image> i, i32 frame, i32 pixelX, i32 pixelY)
+{
+    int xFrame = frame % i->numXFrames;
+    int yFrame = frame / i->numXFrames;
+
+    if (yFrame > i->numYFrames)
+    {
+        c.log->LogError(
+            "Graphics::DrawImageFrame() called with out of bounds frame (%d) for %dx%d image %s",
+            frame, i->numXFrames, i->numYFrames, i->filename.c_str());
+    }
+    else
+    {
+        int offsetX = xFrame * i->frameWidth;
+        int offsetY = yFrame * i->frameHeight;
+
+        SDL_Rect src = {offsetX, offsetY, i->frameWidth, i->frameHeight};
+        SDL_Rect dest = {pixelX, pixelY, i->frameWidth, i->frameHeight};
+
+        SDL_RenderCopy(renderer, i->texture->rawTexture, &src, &dest);
+    }
+}
 
 void GraphicsData::MakeDrawnText(vector<shared_ptr<DrawnText>>& store,
                                  shared_ptr<GraphicsData> data, Layer layer, TextColor color,
@@ -769,8 +795,20 @@ void Graphics::Render(i32 difMs)
     // Clear the window
     SDL_RenderClear(data->renderer);
 
+    bool drewMap = false;
     for (auto it : data->drawnObjs)
+    {
+        if (!drewMap && it.first >= Layer_Tiles)
+        {
+            drewMap = true;
+            c.map->DrawMap();
+        }
+
         it.second->Draw(data->renderer);
+    }
+
+    if (!drewMap)
+        c.map->DrawMap();
 
     // Render the changes
     SDL_RenderPresent(data->renderer);
@@ -845,4 +883,9 @@ shared_ptr<Animation> Graphics::InitAnimation(shared_ptr<Image> i, u32 animMs, u
 shared_ptr<Animation> Graphics::InitAnimation(shared_ptr<Image> i, u32 animMs)
 {
     return make_shared<Animation>(i, animMs, 0, i->numXFrames * i->numYFrames);
+}
+
+void Graphics::DrawImageFrame(shared_ptr<Image> i, i32 frame, i32 pixelX, i32 pixelY)
+{
+    data->DrawImageFrame(i, frame, pixelX, pixelY);
 }

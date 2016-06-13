@@ -19,7 +19,15 @@ enum ShipType
     Ship_Spec = 8,
 };
 
-struct PlayerData
+struct PlayerPhysics
+{
+    i32 x = 8192 * 10000;  // pixel * 10000
+    i32 y = 8192 * 10000;
+    i32 xvel = 0;  // pixel * 10000 per second
+    i32 yvel = 0;
+};
+
+struct Player
 {
     string name = "unassigned name";
     string squad = "unassigned squad";
@@ -27,6 +35,13 @@ struct PlayerData
     i32 pid = UNASSIGNED;
     i32 freq = UNASSIGNED;
     ShipType ship = Ship_Spec;
+
+    PlayerPhysics physics;
+
+    i32 GetXPixel();
+    i32 GetYPixel();
+    i32 GetXTile();
+    i32 GetYTile();
 };
 
 class Players : public Module
@@ -34,7 +49,9 @@ class Players : public Module
    public:
     Players(Client& c);
 
-    shared_ptr<PlayerData> GetPlayerData(i32 pid);
+    shared_ptr<Player> GetPlayer(i32 pid);
+    shared_ptr<Player> GetSelfPlayer();
+
     void UpdatePlayerList();
 
    private:

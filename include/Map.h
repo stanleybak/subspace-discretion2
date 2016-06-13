@@ -15,6 +15,8 @@ class Map : public Module
 
     void SetMapPath(const char* filename);  // use nullptr to clear map
 
+    void DrawMap();
+
    private:
     shared_ptr<MapData> data;
 };
