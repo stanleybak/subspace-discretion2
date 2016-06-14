@@ -105,9 +105,15 @@ void SDLmanData::ProcessEvent(SDL_Event* event)
                         shouldExit = true;
                     }
                     else if (text[0] >= '1' && text[0] <= '8')
+                    {
                         escapeCommand = true;
+                        c.ships->RequestChangeShip((ShipType)(Ship_Warbird + text[0] - '1'));
+                    }
                     else if (text[0] == 's')
+                    {
                         escapeCommand = true;
+                        c.ships->RequestChangeShip(Ship_Spec);
+                    }
                 }
 
                 EscapeToggled();
@@ -118,8 +124,31 @@ void SDLmanData::ProcessEvent(SDL_Event* event)
 
             break;
         }
-        case SDL_KEYDOWN:
+        case SDL_KEYUP:
+        {
+            if (event->key.repeat == 0)
+            {
+                switch (event->key.keysym.sym)
+                {
+                    case SDLK_RIGHT:
+                        c.ships->RightPressed(false);
+                        break;
+                    case SDLK_LEFT:
+                        c.ships->LeftPressed(false);
+                        break;
 
+                    case SDLK_DOWN:
+                        c.ships->DownPressed(false);
+                        break;
+                    case SDLK_UP:
+                        c.ships->UpPressed(false);
+                        break;
+                }
+            }
+            break;
+        }
+        case SDL_KEYDOWN:
+        {
             if (event->key.keysym.sym == SDLK_BACKSPACE)
                 c.chat->TextBackspace();
 
@@ -127,18 +156,18 @@ void SDLmanData::ProcessEvent(SDL_Event* event)
             {
                 switch (event->key.keysym.sym)
                 {
-                    /*case SDLK_RIGHT:
-                                    playerPos.x += movementFactor;
-                                    break;
+                    case SDLK_RIGHT:
+                        c.ships->RightPressed(true);
+                        break;
                     case SDLK_LEFT:
-                                    playerPos.x -= movementFactor;
-                                    break;
-                                    */
+                        c.ships->LeftPressed(true);
+                        break;
+
                     case SDLK_DOWN:
-                        printf("down arrow\n");
+                        c.ships->DownPressed(true);
                         break;
                     case SDLK_UP:
-                        printf("up arrow\n");
+                        c.ships->UpPressed(true);
                         break;
                     case SDLK_ESCAPE:
                         EscapeToggled();
@@ -155,6 +184,7 @@ void SDLmanData::ProcessEvent(SDL_Event* event)
             }
 
             break;
+        }
     }
 }
 
@@ -202,7 +232,8 @@ void SDLman::Exit()
 
 void SDLmanData::DoIteration(i32 difMs)
 {
-    ++fpsFrameCount;
+    // events are processed 60 times a second
+    // rendering might be slower
 
     SDL_Event event;
 
@@ -210,40 +241,59 @@ void SDLmanData::DoIteration(i32 difMs)
         ProcessEvent(&event);
 
     AdvanceState(difMs);
-
-    c.graphics->Render(difMs);
 }
 
 void SDLman::MainLoop()
 {
     data->PostInit();
 
-    i32 targetFps = c.cfg->GetInt("video", "target_fps", 60, [](i32 val)
+    i32 targetFps = c.cfg->GetInt("game", "ticks_per_second", 60, [](i32 val)
                                   {
                                       return val > 0;
                                   });
 
     u32 msPerIteration = round(1000.0 / targetFps);
+
     u32 lastIterationMs = SDL_GetTicks();
-    u32 nowMs = 0, difMs = 0;
+    u32 difMs = 0;
 
     SDL_StartTextInput();
 
     while (!data->shouldExit)
     {
-        do
+        while (difMs < msPerIteration)
         {
-            nowMs = SDL_GetTicks();
+            u32 nowMs = SDL_GetTicks();
             difMs = nowMs - lastIterationMs;
 
             if (difMs < msPerIteration)
                 SDL_Delay(1);
-        } while (difMs < msPerIteration);
+        }
 
-        difMs = nowMs - lastIterationMs;
-        data->DoIteration(difMs);
+        // at this point difMs >= msPerIteration
 
-        lastIterationMs = nowMs;
+        if (difMs >= 2000)
+            c.log->LogError("Slow Main Loop Iteration: difMs=%d\n", difMs);
+
+        if (difMs >= 5000)
+        {
+            c.log->LogError("Main loop iteration could not keep up (difMs=%d). Exiting.", difMs);
+            break;
+        }
+
+        // advance time in increments of msPerIteration
+        i32 timeAdvanced = 0;
+        while (difMs >= msPerIteration)
+        {
+            timeAdvanced += msPerIteration;
+            difMs -= msPerIteration;
+            data->DoIteration(msPerIteration);
+            lastIterationMs += msPerIteration;
+        }
+
+        // render
+        c.graphics->Render(timeAdvanced);
+        ++data->fpsFrameCount;
     }
 
     SDL_StopTextInput();
