@@ -1,5 +1,6 @@
 #include "Graphics.h"
 #include "SDLman.h"
+#include "Players.h"
 #include "Map.h"
 
 #include "SDL2/SDL_ttf.h"
@@ -53,13 +54,15 @@ class DrawnObject
 {
    public:
     DrawnObject(shared_ptr<GraphicsData> gd, Layer layer, shared_ptr<ManagedTexture> texture,
-                const char* name);
+                bool isMapImage, const char* name);
     ~DrawnObject();
 
     void Draw(SDL_Renderer* renderer);
+    void Draw(SDL_Renderer* renderer, int xOffset, int yOffset);
     string ToString();
 
     Layer layer;
+    bool isMapImage;
     shared_ptr<ManagedTexture> texture;
     SDL_Rect src = {0, 0, -1, 0};  // src.w = -1 means use nullptr
     SDL_Rect dest = {0, 0, 0, 0};
@@ -95,7 +98,7 @@ struct GraphicsData
     shared_ptr<ManagedTexture> LoadTexture(const char* filename);
     void MakeDrawnText(vector<shared_ptr<DrawnText>>& store, shared_ptr<GraphicsData> gd,
                        Layer layer, TextColor color, u32 wrapPixels, const char* playerNameUtf8,
-                       const char* utf8);
+                       const char* utf8, bool isMap);
     void MakeWrappedTextSurfaces(vector<SDL_Surface*>& surfStore, vector<string>& lines,
                                  SDL_Surface* nameSurface, SDL_Color textColor, i32 wrapPixels);
     void DrawImageFrame(shared_ptr<Image> i, i32 frame, i32 pixelX, i32 pixelY);
@@ -142,7 +145,8 @@ void GraphicsData::DrawImageFrame(shared_ptr<Image> i, i32 frame, i32 pixelX, i3
 
 void GraphicsData::MakeDrawnText(vector<shared_ptr<DrawnText>>& store,
                                  shared_ptr<GraphicsData> data, Layer layer, TextColor color,
-                                 u32 wrapPixels, const char* playerNameUtf8, const char* utf8)
+                                 u32 wrapPixels, const char* playerNameUtf8, const char* utf8,
+                                 bool isMap = false)
 {
     SDL_Color textColor = colorMap.find(color)->second;
 
@@ -173,7 +177,7 @@ void GraphicsData::MakeDrawnText(vector<shared_ptr<DrawnText>>& store,
         SDL_Texture* tex = SurfaceToTexture(surf);
 
         shared_ptr<ManagedTexture> mt = make_shared<ManagedTexture>(tex);
-        shared_ptr<DrawnObject> drawn = make_shared<DrawnObject>(data, layer, mt, "text");
+        shared_ptr<DrawnObject> drawn = make_shared<DrawnObject>(data, layer, mt, isMap, "text");
 
         SDL_QueryTexture(tex, NULL, NULL, &drawn->dest.w, &drawn->dest.h);
 
@@ -492,6 +496,26 @@ SDL_Texture* GraphicsData::SurfaceToTexture(SDL_Surface* s)
     return tex;
 }
 
+void GraphicsData::LoadIcon()
+{
+    // load icon
+    string iconName =
+        graphicsFolder + "/" + c.cfg->GetString("graphics", "icon_image_name", "icon");
+
+    SDL_Surface* icon = LoadSurface(&iconName);
+
+    if (icon)
+    {
+        SDL_SetWindowIcon(window, icon);
+        SDL_FreeSurface(icon);
+        icon = nullptr;
+
+        c.log->LogDrivel("Set window icon to image '%s'", iconName.c_str());
+    }
+    else
+        c.log->LogError("Error loading icon image from '%s'", iconName.c_str());
+}
+
 void DrawnObject::Draw(SDL_Renderer* r)
 {
     if (visible)
@@ -503,9 +527,24 @@ void DrawnObject::Draw(SDL_Renderer* r)
     }
 }
 
+void DrawnObject::Draw(SDL_Renderer* r, int xOffset, int yOffset)
+{
+    if (visible)
+    {
+        SDL_Rect offsetDest = dest;
+        offsetDest.x += xOffset;
+        offsetDest.y += yOffset;
+
+        if (src.w == -1)
+            SDL_RenderCopy(r, texture->rawTexture, nullptr, &offsetDest);
+        else
+            SDL_RenderCopy(r, texture->rawTexture, &src, &offsetDest);
+    }
+}
+
 DrawnObject::DrawnObject(shared_ptr<GraphicsData> gd, Layer layer,
-                         shared_ptr<ManagedTexture> texture, const char* name)
-    : layer(layer), texture(texture), name(name), gd(gd)
+                         shared_ptr<ManagedTexture> texture, bool isMapImage, const char* name)
+    : layer(layer), isMapImage(isMapImage), texture(texture), name(name), gd(gd)
 {
     // add to render list
     gd->drawnObjs.insert(make_pair(layer, this));
@@ -562,14 +601,14 @@ u32 DrawnText::GetWidth()
 }
 
 DrawnImage::DrawnImage(shared_ptr<GraphicsData> gd, Layer layer, u32 animMs, u32 animFrameOffset,
-                       u32 animNumFrames, shared_ptr<Image> i)
+                       u32 animNumFrames, shared_ptr<Image> i, bool isMap)
     : animMs(animMs),
       animFrameOffset(animFrameOffset),
       animNumFrames(animNumFrames),
       gd(gd),
       image(i)
 {
-    drawnObj = make_shared<DrawnObject>(gd, layer, image->texture, image->filename.c_str());
+    drawnObj = make_shared<DrawnObject>(gd, layer, image->texture, isMap, image->filename.c_str());
 
     drawnObj->dest.w = drawnObj->src.w = image->frameWidth;
     drawnObj->dest.h = drawnObj->src.h = image->frameHeight;
@@ -628,7 +667,7 @@ const char* DrawnImage::GetName()
     return image->filename.c_str();
 }
 
-void DrawnImage::SetCenteredScreenPosition(i32 x, i32 y)
+void DrawnImage::SetCenterPosition(i32 x, i32 y)
 {
     drawnObj->dest.x = x - image->halfFrameHeight;
     drawnObj->dest.y = y - image->halfFrameWidth;
@@ -730,26 +769,6 @@ Graphics::Graphics(Client& c) : Module(c), data(make_shared<GraphicsData>(c))
     data->useBlendedFont = c.cfg->GetInt("text", "use_blended_font", 1) != 0;
 }
 
-void GraphicsData::LoadIcon()
-{
-    // load icon
-    string iconName =
-        graphicsFolder + "/" + c.cfg->GetString("graphics", "icon_image_name", "icon");
-
-    SDL_Surface* icon = LoadSurface(&iconName);
-
-    if (icon)
-    {
-        SDL_SetWindowIcon(window, icon);
-        SDL_FreeSurface(icon);
-        icon = nullptr;
-
-        c.log->LogDrivel("Set window icon to image '%s'", iconName.c_str());
-    }
-    else
-        c.log->LogError("Error loading icon image from '%s'", iconName.c_str());
-}
-
 Graphics::~Graphics()
 {
     // remove all managed animations
@@ -795,6 +814,10 @@ void Graphics::Render(i32 difMs)
     // Clear the window
     SDL_RenderClear(data->renderer);
 
+    shared_ptr<Player> self = c.players->GetSelfPlayer(false);
+    int halfWidth = data->windowW / 2;
+    int halfHeight = data->windowH / 2;
+
     bool drewMap = false;
     for (auto it : data->drawnObjs)
     {
@@ -804,7 +827,16 @@ void Graphics::Render(i32 difMs)
             c.map->DrawMap();
         }
 
-        it.second->Draw(data->renderer);
+        if (it.second->isMapImage)
+        {
+            if (self != nullptr)
+            {
+                it.second->Draw(data->renderer, -self->GetXPixel() + halfWidth,
+                                -self->GetYPixel() + halfHeight);
+            }
+        }
+        else
+            it.second->Draw(data->renderer);
     }
 
     if (!drewMap)
@@ -825,17 +857,18 @@ i32 Graphics::GetFontHeight()
     return TTF_FontHeight(data->font) + 3;  // TTF_FontHeight = 17, TTF_FontLineSkip=22
 }
 
-shared_ptr<DrawnImage> Graphics::MakeDrawnImage(Layer layer, shared_ptr<Image> image)
+shared_ptr<DrawnImage> Graphics::MakeDrawnImage(Layer layer, shared_ptr<Image> image, bool isMap)
 {
-    shared_ptr<DrawnImage> rv = make_shared<DrawnImage>(data, layer, 0, 0, 0, image);
+    shared_ptr<DrawnImage> rv = make_shared<DrawnImage>(data, layer, 0, 0, 0, image, isMap);
 
     return rv;
 }
 
-shared_ptr<DrawnImage> Graphics::MakeDrawnAnimation(Layer layer, shared_ptr<Animation> anim)
+shared_ptr<DrawnImage> Graphics::MakeDrawnAnimation(Layer layer, shared_ptr<Animation> anim,
+                                                    bool isMap)
 {
     shared_ptr<DrawnImage> rv = make_shared<DrawnImage>(
-        data, layer, anim->animMs, anim->animFrameOffset, anim->animNumFrames, anim->image);
+        data, layer, anim->animMs, anim->animFrameOffset, anim->animNumFrames, anim->image, isMap);
 
     return rv;
 }
@@ -843,15 +876,16 @@ shared_ptr<DrawnImage> Graphics::MakeDrawnAnimation(Layer layer, shared_ptr<Anim
 void Graphics::MakeSingleDrawnAnimation(Layer layer, i32 x, i32 y, shared_ptr<Animation> anim)
 {
     shared_ptr<DrawnImage> rv = MakeDrawnAnimation(layer, anim);
-    rv->SetCenteredScreenPosition(x, y);
+    rv->SetCenterPosition(x, y);
 
     data->singleAnimations.insert(make_pair(data->nowMs + anim->animMs, rv));
 }
 
-shared_ptr<DrawnText> Graphics::MakeDrawnText(Layer layer, TextColor color, const char* utf8)
+shared_ptr<DrawnText> Graphics::MakeDrawnText(Layer layer, TextColor color, const char* utf8,
+                                              bool isMap)
 {
     vector<shared_ptr<DrawnText>> lines;
-    data->MakeDrawnText(lines, data, layer, color, 0, nullptr, utf8);
+    data->MakeDrawnText(lines, data, layer, color, 0, nullptr, utf8, isMap);
     return lines[0];
 }
 

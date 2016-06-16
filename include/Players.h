@@ -25,6 +25,8 @@ struct PlayerPhysics
     i32 y = 8192 * 10000;
     i32 xvel = 0;  // pixel * 10000 per second
     i32 yvel = 0;
+
+    i32 rot = 0;  // rotation; degrees * 10000
 };
 
 struct Player
@@ -42,6 +44,9 @@ struct Player
     i32 GetYPixel();
     i32 GetXTile();
     i32 GetYTile();
+    i32 GetRotFrame();
+
+    void SetPixel(i32 x, i32 y);
 };
 
 class Players : public Module
@@ -50,7 +55,7 @@ class Players : public Module
     Players(Client& c);
 
     shared_ptr<Player> GetPlayer(i32 pid);
-    shared_ptr<Player> GetSelfPlayer();
+    shared_ptr<Player> GetSelfPlayer(bool logErrors = true);
 
     void UpdatePlayerList();
 

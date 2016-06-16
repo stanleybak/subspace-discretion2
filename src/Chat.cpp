@@ -53,6 +53,8 @@ Chat::Chat(Client& c) : Module(c), data(make_shared<ChatData>(c))
     c.graphics->GetScreenSize(&data->screenW, &data->screenH);
 
     data->fontHeight = c.graphics->GetFontHeight();
+
+    // add proper chat handler here
 }
 
 void Chat::TextTyped(const char* utf8)

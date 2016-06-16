@@ -1,6 +1,7 @@
 #include "Players.h"
 #include "Net.h"
 #include "Graphics.h"
+#include "Ships.h"
 #include <map>
 #include <set>
 using namespace std;
@@ -22,6 +23,7 @@ struct PlayersModuleData
         {Ship_Terrier, "Terrier"},
         {Ship_Weasel, "Weasel"},
         {Ship_Lancaster, "Lancaster"},
+        {Ship_Shark, "Shark"},
         {Ship_Spec, "Spectator"},
     };
 
@@ -138,6 +140,9 @@ struct PlayersModuleData
 
         c.players->UpdatePlayerList();
 
+        if (player == selfData)
+            c.ships->ShipChanged(ship);  // handle an initial ship changed event
+
         c.log->LogDrivel("Player Entering (pid=%i,name=%s)", player->pid, player->name.c_str());
     };
 
@@ -146,11 +151,18 @@ struct PlayersModuleData
         i32 pid = pi->GetIntValue("pid");
         i32 freq = pi->GetIntValue("freq");
 
-        idToPlayerMap[pid]->freq = freq;
+        auto it = idToPlayerMap.find(pid);
 
-        c.players->UpdatePlayerList();
+        if (it == idToPlayerMap.end())
+            c.log->LogError("Freq Change for unknown pid %d", pid);
+        else
+        {
+            it->second->freq = freq;
 
-        c.log->LogDrivel("Freq Change to %i (pid=%i)", freq, pid);
+            c.players->UpdatePlayerList();
+
+            c.log->LogDrivel("Freq Change to %i (%s)", freq, it->second->name.c_str());
+        }
     };
 
     std::function<void(const PacketInstance*)> freqShipChanged = [this](const PacketInstance* pi)
@@ -164,12 +176,29 @@ struct PlayersModuleData
         if (shipNum >= 0 && shipNum <= 8)
             ship = (ShipType)shipNum;
 
-        idToPlayerMap[pid]->freq = freq;
-        idToPlayerMap[pid]->ship = ship;
+        auto it = idToPlayerMap.find(pid);
 
-        c.players->UpdatePlayerList();
+        if (it == idToPlayerMap.end())
+            c.log->LogError("Freq Ship Change for unknown pid %d", pid);
+        else
+        {
+            shared_ptr<Player> player = it->second;
 
-        c.log->LogDrivel("FreqShip Change to freq=%i, ship=%i (pid=%i)", freq, shipNum, pid);
+            player->freq = freq;
+            player->ship = ship;
+
+            c.players->UpdatePlayerList();
+
+            if (player == selfData)
+            {
+                player->SetPixel(8192, 8192);
+
+                c.ships->ShipChanged(ship);
+            }
+
+            c.log->LogDrivel("FreqShip Change to freq=%i, ship=%i (%s)", freq, shipNum,
+                             player->name.c_str());
+        }
     };
 };
 
@@ -199,9 +228,9 @@ shared_ptr<Player> Players::GetPlayer(i32 pid)
     return rv;
 }
 
-shared_ptr<Player> Players::GetSelfPlayer()
+shared_ptr<Player> Players::GetSelfPlayer(bool logErrors)
 {
-    if (data->selfData == nullptr)
+    if (logErrors && data->selfData == nullptr)
         c.log->LogError("Players::GetSelfPlayer(id) returning nullptr");
 
     return data->selfData;
@@ -215,6 +244,20 @@ void Players::UpdatePlayerList()
 i32 Player::GetXPixel()
 {
     return physics.x / 10000;
+}
+
+i32 Player::GetRotFrame()
+{
+    const int NUM_FRAMES = 40;
+    const int FULL_ROTATION = (360 * 10000);
+
+    return (physics.rot * NUM_FRAMES) / FULL_ROTATION;
+}
+
+void Player::SetPixel(i32 x, i32 y)
+{
+    physics.x = 10000 * x;
+    physics.y = 10000 * y;
 }
 
 i32 Player::GetYPixel()

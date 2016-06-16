@@ -11,16 +11,18 @@ struct ShipsData
     ShipsData(Client& c) : c(c){};
 
     shared_ptr<Image> shipsImage;
-    shared_ptr<DrawnImage> drawnShip;
-
     shared_ptr<Image> powerballImage;
     shared_ptr<Animation> powerballAnim;
-    shared_ptr<DrawnImage> drawnPowerball;
-
     shared_ptr<Image> explodeBombImage;
     shared_ptr<Animation> explodeBombAnimation;
 
+    // demo
+    shared_ptr<DrawnImage> demoDrawnShip;
+    shared_ptr<DrawnImage> demoDrawnPowerball;
+
+    // in-game
     shared_ptr<Player> self;
+    shared_ptr<DrawnImage> selfImage;
 
     bool moveKeys[4] = {false, false, false, false};
 
@@ -32,14 +34,14 @@ struct ShipsData
 
     void InitDemo()
     {
-        drawnShip = c.graphics->MakeDrawnImage(Layer_Ships, shipsImage);
-        drawnPowerball = c.graphics->MakeDrawnAnimation(Layer_Ships, powerballAnim);
+        demoDrawnShip = c.graphics->MakeDrawnImage(Layer_Ships, shipsImage);
+        demoDrawnPowerball = c.graphics->MakeDrawnAnimation(Layer_Ships, powerballAnim);
     }
 
     void DeinitDemo()
     {
-        drawnShip = nullptr;
-        drawnPowerball = nullptr;
+        demoDrawnShip = nullptr;
+        demoDrawnPowerball = nullptr;
     }
 
     void DrawDemo()
@@ -55,7 +57,7 @@ struct ShipsData
         if (totalMs > NUM_SHIPS * ROTATE_TIME)
             totalMs -= NUM_SHIPS * ROTATE_TIME;
 
-        u32 lastFrame = drawnShip->GetFrame();
+        u32 lastFrame = demoDrawnShip->GetFrame();
         u32 curFrame = (FRAMES_PER_SHIP * totalMs / ROTATE_TIME) % (FRAMES_PER_SHIP * NUM_SHIPS);
 
         float radians = TWO_PI * totalMs / ROTATE_TIME;
@@ -65,15 +67,26 @@ struct ShipsData
         i32 x = centerX + ROTATE_RADIUS * -cos(radians);
         i32 y = centerY + ROTATE_RADIUS * -sin(radians);
 
-        drawnShip->SetFrame(curFrame);
-        drawnShip->SetCenteredScreenPosition(x, y);
+        demoDrawnShip->SetFrame(curFrame);
+        demoDrawnShip->SetCenterPosition(x, y);
 
-        drawnPowerball->SetCenteredScreenPosition(centerX, centerY);
+        demoDrawnPowerball->SetCenterPosition(centerX, centerY);
 
         if (lastFrame % FRAMES_PER_SHIP > curFrame % FRAMES_PER_SHIP)
         {
             c.graphics->MakeSingleDrawnAnimation((Layer)(Layer_Ships + 5), x, y,
                                                  explodeBombAnimation);
+        }
+    }
+
+    void ShipChanged(ShipType s)
+    {
+        if (s == Ship_Spec)
+            selfImage = nullptr;
+        else
+        {
+            selfImage = c.graphics->MakeDrawnImage(Layer_Ships, shipsImage, true);
+            // the frame and position gets adjusted at each render call to match the player object
         }
     }
 
@@ -100,7 +113,16 @@ struct ShipsData
             self->physics.x -= difMs * leftMult * MOVE_SPEED;
         }
 
-        // draw the player frame
+        // update the player ship image
+        if (selfImage)
+        {
+            selfImage->SetCenterPosition(self->GetXPixel(), self->GetYPixel());
+
+            int frame = 40 * (int)self->ship;
+            frame += self->GetRotFrame();
+
+            selfImage->SetFrame(frame);
+        }
     }
 };
 
@@ -160,4 +182,9 @@ void Ships::RequestChangeShip(ShipType s)
     pi.SetValue("ship", (i32)s);
 
     c.net->SendReliablePacket(&pi);
+}
+
+void Ships::ShipChanged(ShipType s)
+{
+    data->ShipChanged(s);
 }

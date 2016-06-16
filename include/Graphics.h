@@ -67,13 +67,13 @@ class DrawnImage
 {
    public:
     DrawnImage(shared_ptr<GraphicsData> gd, Layer layer, u32 animMs, u32 animFrameOffset,
-               u32 animNumFrames, shared_ptr<Image> i);
+               u32 animNumFrames, shared_ptr<Image> i, bool isMapImage);
     ~DrawnImage();
 
     const char* GetName();
     u32 GetFrame();
     void SetFrame(u32 frameNum);
-    void SetCenteredScreenPosition(i32 x, i32 y);
+    void SetCenterPosition(i32 x, i32 y);
     void SetVisible(bool vis);
     void AdvanceAnimation(u32 mills);
 
@@ -101,13 +101,19 @@ class Graphics : public Module
 
     // text will keep getting drawn until object is disposed (wrapPixels = 0 means no wrap)
     // playerName can be null
-    shared_ptr<DrawnText> MakeDrawnText(Layer layer, TextColor color, const char* utf8);
+    shared_ptr<DrawnText> MakeDrawnText(Layer layer, TextColor color, const char* utf8,
+                                        bool isMap = false);
     void MakeDrawnChat(vector<shared_ptr<DrawnText>>& store, Layer layer, TextColor color,
                        i32 wrapPixels, const char* playerNameUtf8, const char* utf8);
 
     // image will keep getting drawn until object is disposed
-    shared_ptr<DrawnImage> MakeDrawnImage(Layer layer, shared_ptr<Image> image);
-    shared_ptr<DrawnImage> MakeDrawnAnimation(Layer layer, shared_ptr<Animation> anim);
+    // screen images are in absolute screen coordinates (the gauges)
+    // map images are in map coordinates (other ships)
+    shared_ptr<DrawnImage> MakeDrawnImage(Layer layer, shared_ptr<Image> image,
+                                          bool isMapImage = false);
+
+    shared_ptr<DrawnImage> MakeDrawnAnimation(Layer layer, shared_ptr<Animation> anim,
+                                              bool isMapAnimation = false);
 
     // will loop once
     void MakeSingleDrawnAnimation(Layer layer, i32 x, i32 y, shared_ptr<Animation> anim);
