@@ -42,7 +42,6 @@ struct NetData
 
         AddPacketHandler("sync pong", coreHandlers.handleSyncPong);
         AddPacketHandler("sync request", coreHandlers.handleSyncRequest);
-        AddPacketHandler("now in game", coreHandlers.handleNowInGame);
 
         vector<i32> ignoreTypes = c.cfg->GetIntList("Packets", "Ignore Game Packets");
 

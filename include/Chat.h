@@ -11,14 +11,16 @@
 
 enum ChatType
 {
+    Chat_GreenArenaMessage,
+    Chat_PublicMacro,
     Chat_Public,
     Chat_Team,
     Chat_EnemyTeam,
     Chat_Private,
-    Chat_Channel,
-    Chat_Remote,
-    Chat_Mode,
-    Chat_Internal
+    Chat_ModWarning,
+    Chat_RemovePrivate,
+    Chat_ServerError,
+    Chat_ChatChannel
 };
 
 class ChatData;

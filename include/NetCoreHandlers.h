@@ -6,7 +6,6 @@
 
 #include "Client.h"
 #include "Connection.h"
-#include "Ships.h"
 #include "Map.h"
 #include <SDL/SDL.h>
 #include <vector>
@@ -414,12 +413,6 @@ struct NetCoreHanders
                 break;
             }
         }
-    };
-
-    std::function<void(const PacketInstance*)> handleNowInGame = [this](const PacketInstance* pi)
-    {
-        // we can start sending position packets...
-        c.ships->NowInGame();
     };
 
     std::function<void(const u8*, int)> ignoreRawPacket = [this](const u8* data, int len)

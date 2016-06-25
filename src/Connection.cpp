@@ -3,6 +3,7 @@
 #include "Packets.h"
 #include "Graphics.h"
 #include "Net.h"
+#include "Ships.h"
 #include "Chat.h"
 using namespace std;
 
@@ -257,6 +258,24 @@ struct ConnectionData
         // ignore
     };
 
+    std::function<void(const PacketInstance*)> handleNowInGame = [this](const PacketInstance* pi)
+    {
+        if (state == STATUS_SENT_ARENA_REQUEST)
+        {
+            state = STATUS_IN_ARENA;
+
+            // we can start sending position packets...
+            c.ships->NowInGame();
+        }
+        else
+        {
+            c.log->LogError("Got now-in-game packet, but not in state STATUS_SENT_ARENA_REQUEST.");
+            c.connection->Disconnect();
+            c.chat->InternalMessage(
+                "You have disconnected from the server. (Got connection packet in invalid state)");
+        }
+    };
+
     std::function<void(const PacketInstance*)> handlePasswordResponse =
         [this](const PacketInstance* pi)
     {
@@ -314,11 +333,12 @@ Connection::Connection(Client& c) : Module(c), data(make_shared<ConnectionData>(
     string intro = "Use ?connect to connect to " + data->connectAddr + " with username " +
                    data->username + " or change using ?name, ?pw, or ?ip.";
 
-    c.chat->ChatMessage(Chat_Remote, nullptr, intro.c_str());
+    c.chat->InternalMessage(intro.c_str());
 
     c.net->AddPacketHandler("encryption response", data->handleEncryptionReponse);
     c.net->AddPacketHandler("password response", data->handlePasswordResponse);
     c.net->AddPacketHandler("disconnect", data->handleDisconnect);
+    c.net->AddPacketHandler("now in game", data->handleNowInGame);
 }
 
 Connection::~Connection()

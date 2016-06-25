@@ -128,7 +128,7 @@ struct PacketsData
         else if (strcasecmp(type, "raw") == 0)
             rv = FT_RAW;
         else
-            c.log->LogError("Unknown packet field type: '%s'", type);
+            c.log->FatalError("Unknown packet field type: '%s'", type);
 
         return rv;
     }

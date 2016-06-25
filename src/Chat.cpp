@@ -5,6 +5,8 @@
 #include "Connection.h"
 #include <deque>
 #include <map>
+#include <set>
+using namespace std;
 
 class ChatData
 {
@@ -24,17 +26,19 @@ class ChatData
     vector<shared_ptr<DrawnText>> curTextLines;
     deque<shared_ptr<DrawnText>> chatBufferLines;
 
-    map<ChatType, TextColor> chatColorMap = {{Chat_Public, Color_Blue},
+    map<u8, ChatType> prefixMap = {
+        {'\'', Chat_Team}, {'\"', Chat_EnemyTeam}, {'/', Chat_Private}, {';', Chat_ChatChannel}};
+
+    map<ChatType, TextColor> chatColorMap = {{Chat_GreenArenaMessage, Color_Green},
+                                             {Chat_PublicMacro, Color_Blue},
+                                             {Chat_Public, Color_Blue},
                                              {Chat_Team, Color_Yellow},
                                              {Chat_EnemyTeam, Color_Purple},
                                              {Chat_Private, Color_Green},
-                                             {Chat_Channel, Color_Orange},
-                                             {Chat_Remote, Color_Green},
-                                             {Chat_Mode, Color_Pink},
-                                             {Chat_Internal, Color_Red}};
-
-    map<u8, ChatType> prefixMap = {
-        {'\'', Chat_Team}, {'\"', Chat_EnemyTeam}, {'/', Chat_Private}, {';', Chat_Channel}};
+                                             {Chat_ModWarning, Color_Red},
+                                             {Chat_RemovePrivate, Color_Green},
+                                             {Chat_ServerError, Color_Red},
+                                             {Chat_ChatChannel, Color_Orange}};
 
     map<string, std::function<void(const char*)>> internalCommandMap;
 
@@ -42,6 +46,44 @@ class ChatData
     ChatType GetTypingChatType();
     void UpdateChatLineVisuals();
     bool CheckInternalCommand(const char* textUtf8);
+
+    std::function<void(const PacketInstance*)> handleIncomingChat = [this](const PacketInstance* pi)
+    {
+        ChatType type = (ChatType)pi->GetIntValue("type");
+
+        if (type < Chat_GreenArenaMessage || type > Chat_ChatChannel)
+            c.log->LogError("Invalid Chat Type id: 0x%02x", type);
+        else
+        {
+            string message = *pi->GetStringValue("message");
+            const char* fromName = nullptr;
+
+            // some types have an name
+            static set<ChatType> HAS_PID = {Chat_PublicMacro, Chat_Public,  Chat_Team,
+                                            Chat_EnemyTeam,   Chat_Private, Chat_ModWarning};
+
+            if (HAS_PID.find(type) != HAS_PID.end())
+            {
+                int pid = pi->GetIntValue("pid");
+
+                shared_ptr<Player> p = c.players->GetPlayer(pid);
+
+                if (p)
+                    fromName = p->name.c_str();
+                else
+                    fromName = "(unknown)";
+            }
+
+            // moderator warning has special handling
+            if (type == Chat_ModWarning)
+            {
+                message = "Moderator Warning: " + message + " -" + fromName;
+                fromName = nullptr;
+            }
+
+            c.chat->ChatMessage(type, fromName, message.c_str());
+        }
+    };
 };
 
 Chat::Chat(Client& c) : Module(c), data(make_shared<ChatData>(c))
@@ -55,6 +97,7 @@ Chat::Chat(Client& c) : Module(c), data(make_shared<ChatData>(c))
     data->fontHeight = c.graphics->GetFontHeight();
 
     // add proper chat handler here
+    c.net->AddPacketHandler("incoming chat", data->handleIncomingChat);
 }
 
 void Chat::TextTyped(const char* utf8)
@@ -122,11 +165,22 @@ void Chat::TextEnter()
         // pop off first character
         if (type != Chat_Public)
             data->curTextUtf8 = data->curTextUtf8.substr(1, data->curTextUtf8.length() - 1);
-        else
+
+        if (type != Chat_Public || data->curTextUtf8[0] != '?' ||
+            !data->CheckInternalCommand(data->curTextUtf8.c_str()))
         {
-            if (data->curTextUtf8[0] != '?' ||
-                !data->CheckInternalCommand(data->curTextUtf8.c_str()))
-                ChatMessage(type, c.connection->GetPlayerName(), data->curTextUtf8.c_str());
+            ChatMessage(type, c.connection->GetPlayerName(), data->curTextUtf8.c_str());
+
+            // send to server if we're connected
+            if (c.connection->isCompletelyConnected())
+            {
+                PacketInstance pi("outgoing chat");
+                pi.SetValue("type", (i32)type);
+                pi.SetValue("message", data->curTextUtf8.c_str());
+
+                // TODO: set target for certain messages (enemy team, private)
+                c.net->SendReliablePacket(&pi);
+            }
         }
 
         data->curTextUtf8 = "";
@@ -143,7 +197,7 @@ void Chat::SetEscPressedState(bool state)
 
 void Chat::InternalMessage(const char* textUtf8)
 {
-    ChatMessage(Chat_Internal, nullptr, textUtf8);
+    ChatMessage(Chat_GreenArenaMessage, nullptr, textUtf8);
 }
 
 void Chat::ChatMessage(ChatType type, const char* playerNameUtf8, const char* textUtf8)
