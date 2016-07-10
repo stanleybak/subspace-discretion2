@@ -96,6 +96,22 @@ struct ConnectionData
     string zoneDirName;   // set when Connection::Connect() is called
     string arenaDirName;  // set when Connection::SendArenaLogin() is called
 
+    std::function<void(const char*)> disconnectFunc = [this](const char* textUtf8)
+    {
+        if (string("?disconnect") == textUtf8)
+        {
+            if (state == STATUS_NOT_CONNECTED)
+                c.chat->InternalMessage("You are already disconnected.");
+            else
+            {
+                c.connection->Disconnect();
+                c.chat->InternalMessage("Disconnected.");
+            }
+        }
+        else
+            c.chat->InternalMessage("Expected plain '?disconnect' command.");
+    };
+
     std::function<void(const char*)> connectFunc = [this](const char* textUtf8)
     {
         if (string("?connect") == textUtf8)
@@ -316,6 +332,9 @@ struct ConnectionData
 
     std::function<void(const PacketInstance*)> handleDisconnect = [this](const PacketInstance* pi)
     {
+        c.log->LogDrivel("Got disconnect packet from server");
+
+        c.connection->Disconnect();
     };
 };
 
@@ -325,6 +344,7 @@ Connection::Connection(Client& c) : Module(c), data(make_shared<ConnectionData>(
     data->password = c.cfg->GetString("connection", "password", "1234");
     data->connectAddr = c.cfg->GetString("connection", "connect_addr", "127.0.0.1:5000");
 
+    c.chat->AddInternalCommand("disconnect", data->disconnectFunc);
     c.chat->AddInternalCommand("connect", data->connectFunc);
     c.chat->AddInternalCommand("name", data->nameFunc);
     c.chat->AddInternalCommand("pw", data->pwFunc);

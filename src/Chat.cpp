@@ -310,6 +310,7 @@ bool ChatData::CheckInternalCommand(const char* textUtf8)
 
         if (it != internalCommandMap.end())
         {
+            c.log->LogDrivel("Got Internal Command: %s", textUtf8);
             rv = true;
             it->second(textUtf8);
         }

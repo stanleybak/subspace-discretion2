@@ -5,6 +5,7 @@
 
 #include "asss.h"
 #include "dphysics_packets.h"
+#include "packets/pdata.h"
 #include "packets/types.h"
 
 local Imodman *mm = 0;
@@ -22,6 +23,8 @@ local pthread_mutex_t dphysics_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct FrameData
 {
+    u32 frameNum;
+
     LinkedList pidStateList;
     LinkedList playerStateList;
     LinkedList weaponStateList;
@@ -29,26 +32,21 @@ typedef struct FrameData
 
 typedef struct ArenaData
 {
-    // hmm
-    u32 frameOffset;
+    u32 nextFrameNum;
 } ArenaData;
 
 local void initArenaData(Arena *a)
 {
-    LOCK();
     ArenaData *data = P_ARENA_DATA(a, adkey);
 
-    data->frameOffset = 0;
-    UNLOCK();
+    data->nextFrameNum = 0;
 }
 
 local void deinitArenaData(Arena *a)
 {
-    LOCK();
     // ArenaData *data = P_ARENA_DATA(a, adkey);
 
     // LLFree(&data->frames);
-    UNLOCK();
 }
 
 local void initFrameData(FrameData *fd)
@@ -60,6 +58,29 @@ local void initFrameData(FrameData *fd)
 
 local void deinitFrameData(FrameData *fd)
 {
+    Link *link = 0;
+    void *data = 0;
+
+    // free the pointed-to objects
+    FOR_EACH(&fd->pidStateList, data, link)
+    {
+        afree(data);
+        data = 0;
+    }
+
+    FOR_EACH(&fd->playerStateList, data, link)
+    {
+        afree(data);
+        data = 0;
+    }
+
+    FOR_EACH(&fd->weaponStateList, data, link)
+    {
+        afree(data);
+        data = 0;
+    }
+
+    // free the link objects
     LLEmpty(&fd->pidStateList);
     LLEmpty(&fd->playerStateList);
     LLEmpty(&fd->weaponStateList);
@@ -76,6 +97,8 @@ local void ppk(Player *p, byte *pkt, int len)
 local byte *makeFramePacket(FrameData *fd, u32 *size)
 {
     FrameHeader header;
+    header.packetType = S2C_DISC2_FRAME;
+    header.frameNum = fd->frameNum;
 
     // Note: LLCount is not the most efficient function...
     header.numPidStates = LLCount(&fd->pidStateList);
@@ -97,7 +120,7 @@ local byte *makeFramePacket(FrameData *fd, u32 *size)
     // copy pid state
     PidState *curPidState = 0;
 
-    FOR_EACH(fd->pidStateList, curPidState, link)
+    FOR_EACH(&fd->pidStateList, curPidState, link)
     {
         memcpy(curOffset, curPidState, sizeof(PidState));
         curOffset += sizeof(PidState);
@@ -106,7 +129,7 @@ local byte *makeFramePacket(FrameData *fd, u32 *size)
     // copy player state
     PlayerState *curPlayerState = 0;
 
-    FOR_EACH(fd->playerStateList, curPlayerState, link)
+    FOR_EACH(&fd->playerStateList, curPlayerState, link)
     {
         memcpy(curOffset, curPlayerState, sizeof(PlayerState));
         curOffset += sizeof(PlayerState);
@@ -115,7 +138,7 @@ local byte *makeFramePacket(FrameData *fd, u32 *size)
     // copy weapon state
     WeaponState *curWeaponState = 0;
 
-    FOR_EACH(fd->weaponStateList, curWeaponState, link)
+    FOR_EACH(&fd->weaponStateList, curWeaponState, link)
     {
         memcpy(curOffset, curWeaponState, sizeof(WeaponState));
         curOffset += sizeof(WeaponState);
@@ -128,14 +151,52 @@ local byte *makeFramePacket(FrameData *fd, u32 *size)
 
 local void sendFrameDataToAllPlayers(FrameData *fd, Arena *arena)
 {
-    Player *p = NULL;
-    Link *link = NULL;
     u32 size = 0;
     byte *packet = makeFramePacket(fd, &size);
+    Link *link = 0;
+    Player *p = 0;
 
-    net->SendToArena(arena, NULL, packet, size, NET_UNRELIABLE);
+    FOR_EACH_PLAYER_IN_ARENA(p, arena)
+    {
+        if (p->type == T_DISC2)
+            net->SendToOne(p, packet, size, NET_UNRELIABLE);
+    }
 
     afree(packet);
+}
+
+local void populateFrameData(FrameData *fd, Arena *arena, ArenaData *arenaData)
+{
+    Link *link = NULL;
+    Player *p = NULL;
+
+    fd->frameNum = arenaData->nextFrameNum;
+
+    pd->Lock();
+    FOR_EACH_PLAYER_IN_ARENA(p, arena)
+    {
+        PidState *pid = amalloc(sizeof(PidState));
+
+        pid->pid = p->pid;
+        pid->freq = p->pkt.freq;
+        pid->ship = p->pkt.ship;
+        strncpy(pid->name, p->name, sizeof(pid->name));
+        strncpy(pid->squad, p->squad, sizeof(pid->squad));
+        LLAdd(&fd->pidStateList, pid);
+
+        PlayerState *ps = amalloc(sizeof(PlayerState));
+
+        ps->exploded = 0;
+        ps->pid = p->pid;
+        ps->rot = p->position.rotation;
+        ps->xpixel = p->position.x;
+        ps->ypixel = p->position.y;
+        LLAdd(&fd->playerStateList, ps);
+    }
+
+    pd->Unlock();
+
+    // need to populate weapons as well
 }
 
 local int FrameTimer(void *dummy)
@@ -148,10 +209,12 @@ local int FrameTimer(void *dummy)
     {
         FrameData fd;
         initFrameData(&fd);
+        ArenaData *arenaData = P_ARENA_DATA(arena, adkey);
 
-        populateFrameData(&fd);
+        populateFrameData(&fd, arena, arenaData);
         sendFrameDataToAllPlayers(&fd, arena);
 
+        arenaData->nextFrameNum++;
         deinitFrameData(&fd);
     }
 
